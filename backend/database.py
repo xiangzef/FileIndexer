@@ -20,6 +20,7 @@ class FileEntry(Base):
     extension = Column(String, nullable=False)
     size = Column(BigInteger, nullable=False)
     md5 = Column(String(32), nullable=True, index=True)
+    content_hash = Column(String(64), nullable=True, index=True)
     created_time = Column(DateTime, nullable=True)
     modified_time = Column(DateTime, nullable=True)
     scan_time = Column(DateTime, default=datetime.now)

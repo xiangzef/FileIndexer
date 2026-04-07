@@ -1,6 +1,7 @@
 import os
 import hashlib
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Generator, Dict, Any
@@ -29,7 +30,10 @@ def calculate_md5(file_path: str, chunk_size: int = 8192) -> Optional[str]:
     try:
         md5_hash = hashlib.md5()
         with open(file_path, 'rb') as f:
-            while chunk := f.read(chunk_size):
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
     except Exception:
@@ -68,14 +72,28 @@ def scan_directory(
             yield {"type": "stopped", "directory": directory}
             return
 
+        stat = None
+        last_error = None
+        for attempt in range(3):
+            try:
+                stat = os.stat(file_path)
+                break
+            except OSError as e:
+                last_error = e
+                if hasattr(e, 'winerror') and e.winerror == 234:
+                    time.sleep(0.1)
+                    continue
+                break
+        if stat is None:
+            yield {"type": "error", "file": file_path, "message": f"无法访问: {last_error}"}
+            continue
+        
+        ext = os.path.splitext(file_path)[1].lower()
+        existing = db.query(FileEntry).filter_by(path=file_path).first()
+        if existing:
+            continue
+
         try:
-            stat = os.stat(file_path)
-            ext = os.path.splitext(file_path)[1].lower()
-
-            existing = db.query(FileEntry).filter_by(path=file_path).first()
-            if existing:
-                continue
-
             entry = FileEntry(
                 path=file_path,
                 name=os.path.basename(file_path),

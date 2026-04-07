@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import os
@@ -16,7 +16,7 @@ from scanner import (
     scan_directory, compute_md5_batch, find_duplicates,
     stop_scan, ALL_SUPPORTED, calculate_md5, SCAN_STOP_FLAG
 )
-from archiver import deduplicate_files, rename_duplicates_by_date, get_unique_filename
+from archiver import deduplicate_files, rename_duplicates_by_date, get_unique_filename, archive_files_smart
 
 app = FastAPI(title="FileIndexer API", version="1.0.0")
 
@@ -38,7 +38,7 @@ def _send_sse(data: dict) -> str:
 
 @app.get("/")
 async def root():
-    return {"message": "FileIndexer API", "version": "1.0.0"}
+    return FileResponse(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"))
 
 @app.get("/health")
 async def health():
@@ -206,6 +206,26 @@ async def get_files(
         } for e in items]
     }
 
+@app.get("/files/all-ids")
+async def get_all_file_ids(
+    extension: str = None,
+    is_duplicate: bool = None,
+    keyword: str = None
+):
+    db = SessionLocal()
+    query = db.query(FileEntry.id)
+
+    if extension:
+        query = query.filter(FileEntry.extension == extension)
+    if is_duplicate is not None:
+        query = query.filter(FileEntry.is_duplicate == is_duplicate)
+    if keyword:
+        query = query.filter(FileEntry.name.contains(keyword))
+
+    ids = [row[0] for row in query.all()]
+    db.close()
+    return {"ids": ids, "total": len(ids)}
+
 @app.get("/duplicates")
 async def get_duplicates():
     db = SessionLocal()
@@ -260,7 +280,29 @@ async def rename_by_date():
 @app.post("/archive")
 async def archive_files(request: dict):
     """
-    归档文件到指定目录
+    智能归档文件到指定目录，按文件类型分类，相似文件归到同一文件夹
+    """
+    file_ids = request.get("file_ids", [])
+    target_dir = request.get("target_dir", "")
+    mode = request.get("mode", "copy")
+
+    if not target_dir:
+        raise HTTPException(status_code=400, detail="目标目录不能为空")
+
+    async def generate():
+        db = SessionLocal()
+        for result in archive_files_smart(db, file_ids, target_dir, mode):
+            yield _send_sse(result)
+        db.close()
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "X-Accel-Buffering": "no"
+    })
+
+@app.post("/archive-simple")
+async def archive_files_simple(request: dict):
+    """
+    简单归档文件到指定目录（不分类）
     """
     file_ids = request.get("file_ids", [])
     target_dir = request.get("target_dir", "")
@@ -378,4 +420,4 @@ if os.path.exists(frontend_path):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5678)
+    uvicorn.run(app, host="127.0.0.1", port=56789)

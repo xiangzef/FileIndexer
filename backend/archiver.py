@@ -1,17 +1,47 @@
 import os
 import shutil
 import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Generator, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from database import FileEntry
 
+DOC_EXTENSIONS = {'.doc', '.docx'}
+CSV_EXTENSIONS = {'.csv', '.els', '.elsx'}
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'}
+PDF_EXTENSIONS = {'.pdf'}
+ALL_SUPPORTED = DOC_EXTENSIONS | CSV_EXTENSIONS | IMAGE_EXTENSIONS | PDF_EXTENSIONS
+
+EXT_TYPE_MAP = {
+    'doc': 'Word文档',
+    'docx': 'Word文档',
+    'pdf': 'PDF文档',
+    'txt': '文本文件',
+    'csv': '表格文件',
+    'xls': '表格文件',
+    'xlsx': '表格文件',
+    'ppt': 'PPT演示',
+    'pptx': 'PPT演示',
+    'jpg': '图片',
+    'jpeg': '图片',
+    'png': '图片',
+    'gif': '图片',
+    'bmp': '图片',
+    'mp3': '音频',
+    'mp4': '视频',
+    'zip': '压缩包',
+}
+
 def calculate_md5(file_path: str) -> Optional[str]:
     try:
         md5_hash = hashlib.md5()
         with open(file_path, 'rb') as f:
-            while chunk := f.read(8192):
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
     except Exception:
@@ -31,6 +61,128 @@ def get_unique_filename(target_dir: str, filename: str) -> str:
         if not os.path.exists(new_path):
             return new_filename
         counter += 1
+
+def normalize_content_for_hash(file_path: str) -> Optional[str]:
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in {'.txt', '.csv', '.doc', '.docx', '.pdf', '.xls', '.xlsx'}:
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+            while b'\n\n' in content:
+                content = content.replace(b'\n\n', b'\n')
+            return hashlib.sha256(content).hexdigest()
+        return calculate_md5(file_path)
+    except Exception:
+        return None
+
+def get_base_name(name: str) -> str:
+    name = re.sub(r'[_-]?\d+$', '', name)
+    name = re.sub(r'[_-]?(copy|副本|备份|backup)$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s+', '', name)
+    return name.lower()
+
+def get_file_category(ext: str) -> str:
+    return EXT_TYPE_MAP.get(ext.lower().lstrip('.'), '其他文件')
+
+def group_similar_files(files: List[Dict]) -> Dict[str, List[Dict]]:
+    groups = {}
+    used = set()
+    
+    for i, f1 in enumerate(files):
+        if f1['id'] in used:
+            continue
+        base1 = get_base_name(f1['name'])
+        group_key = f1['name'][:10] if len(f1['name']) >= 10 else f1['name']
+        group = [f1]
+        used.add(f1['id'])
+        
+        for f2 in files[i+1:]:
+            if f2['id'] in used:
+                continue
+            base2 = get_base_name(f2['name'])
+            if base1 == base2 or (len(base1) > 5 and len(base2) > 5 and base1[:15] == base2[:15]):
+                if abs(f1['size'] - f2['size']) < 1024 * 100:
+                    group.append(f2)
+                    used.add(f2['id'])
+        
+        group.sort(key=lambda x: x.get('modified_time') or datetime.min)
+        groups[group_key] = group
+    
+    return groups
+
+def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode: str = 'copy') -> Generator[Dict[str, Any], None, None]:
+    entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+    
+    if not entries:
+        yield {"type": "error", "message": "没有选择文件"}
+        return
+    
+    yield {"type": "start", "total": len(entries)}
+    
+    os.makedirs(target_dir, exist_ok=True)
+    
+    by_category = {}
+    for entry in entries:
+        cat = get_file_category(entry.extension)
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append({
+            'id': entry.id,
+            'name': entry.name,
+            'path': entry.path,
+            'size': entry.size,
+            'extension': entry.extension,
+            'modified_time': entry.modified_time
+        })
+    
+    for category, files in by_category.items():
+        cat_dir = os.path.join(target_dir, category)
+        os.makedirs(cat_dir, exist_ok=True)
+        yield {"type": "category", "category": category, "count": len(files)}
+        
+        groups = group_similar_files(files)
+        
+        for group_key, group_files in groups.items():
+            if len(group_files) > 1:
+                earliest = group_files[0]
+                base_name = get_base_name(earliest['name']) or earliest['name']
+                date_str = earliest['modified_time'].strftime("%Y%m%d") if earliest.get('modified_time') else "无日期"
+                group_dir = os.path.join(cat_dir, f"{base_name}_{date_str}_类似文件组")
+                os.makedirs(group_dir, exist_ok=True)
+                
+                for f in group_files:
+                    try:
+                        target_path = os.path.join(group_dir, f['name'])
+                        if os.path.exists(target_path):
+                            target_path = get_unique_filename(group_dir, f['name'])
+                        if mode == 'move':
+                            shutil.move(f['path'], target_path)
+                        else:
+                            shutil.copy2(f['path'], target_path)
+                        yield {"type": "archived", "name": f['name'], "target": target_path, "group": group_dir}
+                    except Exception as e:
+                        yield {"type": "error", "file": f['name'], "message": str(e)}
+            else:
+                f = group_files[0]
+                try:
+                    target_path = os.path.join(cat_dir, f['name'])
+                    if os.path.exists(target_path):
+                        target_path = get_unique_filename(cat_dir, f['name'])
+                    if mode == 'move':
+                        shutil.move(f['path'], target_path)
+                    else:
+                        shutil.copy2(f['path'], target_path)
+                    yield {"type": "archived", "name": f['name'], "target": target_path}
+                except Exception as e:
+                    yield {"type": "error", "file": f['name'], "message": str(e)}
+        
+        for entry in entries:
+            if get_file_category(entry.extension) == category:
+                entry.path = os.path.join(cat_dir, entry.name)
+                db.commit()
+    
+    yield {"type": "complete", "total": len(entries)}
 
 def deduplicate_files(db: Session, keep_originals: bool = True) -> Generator[Dict[str, Any], None, None]:
     md5_groups = {}
@@ -65,6 +217,33 @@ def deduplicate_files(db: Session, keep_originals: bool = True) -> Generator[Dic
                 "size": dup.size,
                 "md5": md5
             }
+
+    similar_entries = db.query(FileEntry).filter(FileEntry.is_duplicate == False).all()
+    for entry in similar_entries:
+        similar = db.query(FileEntry).filter(
+            FileEntry.id != entry.id,
+            FileEntry.size == entry.size,
+            FileEntry.extension == entry.extension
+        ).all()
+        
+        base1 = get_base_name(entry.name)
+        for sim in similar:
+            base2 = get_base_name(sim.name)
+            if base1 == base2 and not sim.is_duplicate:
+                sim.is_duplicate = True
+                sim.duplicate_of_id = entry.id
+                db.commit()
+                total_duplicates += 1
+                total_space_saved += sim.size
+                yield {
+                    "type": "similar_name",
+                    "original_id": entry.id,
+                    "original_path": entry.path,
+                    "duplicate_id": sim.id,
+                    "duplicate_path": sim.path,
+                    "size": sim.size,
+                    "reason": "name_similar"
+                }
 
     yield {
         "type": "summary",
