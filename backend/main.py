@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import os
 import json
+import shutil
 import threading
 import asyncio
 from datetime import datetime
@@ -54,11 +55,14 @@ async def get_supported_extensions():
     }
 
 @app.post("/scan")
-async def scan_paths(paths: List[str]):
+async def scan_paths(request: Request):
     """
     扫描指定目录，生成文件索引
     """
     import uuid
+
+    body = await request.json()
+    paths = body if isinstance(body, list) else body.get("paths", [])
 
     job_id = str(uuid.uuid4())[:8]
     stop_event = threading.Event()
@@ -367,6 +371,10 @@ async def get_stats():
         "total_size": total_size,
         "by_extension": by_extension
     }
+
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

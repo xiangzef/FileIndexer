@@ -1,5 +1,4 @@
 @echo off
 cd /d %~dp0
-cd ..\backend
 python -m uvicorn main:app --host 0.0.0.0 --port 5678 --reload
 pause
