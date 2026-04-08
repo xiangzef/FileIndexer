@@ -186,11 +186,24 @@
                     <select v-model="archiveMode" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
                         <option value="copy">复制</option>
                         <option value="move">移动</option>
-                        <option value="move">移动</option>
                     </select>
-                    <button class="btn btn-primary" @click="archiveFiles" :disabled="selectedFiles.length === 0">
-                        归档 ({{ selectedFiles.length }})
+                    <label style="display:flex;align-items:center;gap:5px;">
+                        <input type="checkbox" v-model="archiveSmart"> 智能分类
+                    </label>
+                    <button class="btn btn-primary" @click="archiveFiles" :disabled="selectedFiles.length === 0 || archiving">
+                        {{ archiving ? '归档中...' : '归档 (' + selectedFiles.length + ')' }}
                     </button>
+                </div>
+                <div style="margin-top:10px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                    <div style="margin-bottom:8px;font-weight:500;">选择归档类型：</div>
+                    <div class="tags">
+                        <span class="tag" :class="{active: archiveTypes.length === 0}" @click="archiveTypes = []">全部</span>
+                        <span class="tag" :class="{active: archiveTypes.includes('.doc') || archiveTypes.includes('.docx')}" @click="toggleArchiveType('.doc')">Word文档</span>
+                        <span class="tag" :class="{active: archiveTypes.includes('.pdf')}" @click="toggleArchiveType('.pdf')">PDF文档</span>
+                        <span class="tag" :class="{active: archiveTypes.includes('.csv') || archiveTypes.includes('.xls') || archiveTypes.includes('.xlsx')}" @click="toggleArchiveType('.csv')">表格文件</span>
+                        <span class="tag" :class="{active: archiveTypes.includes('.ppt') || archiveTypes.includes('.pptx')}" @click="toggleArchiveType('.ppt')">PPT幻灯片</span>
+                        <span class="tag" :class="{active: archiveTypes.includes('.jpg') || archiveTypes.includes('.png') || archiveTypes.includes('.gif')}" @click="toggleArchiveType('.jpg')">图片</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -224,6 +237,7 @@
                 const archiveMode = ref('copy');
                 const stats = ref({ total_files: 0, total_duplicates: 0, total_size: 0, by_extension: {} });
                 const archiving = ref(false);
+                const archiveTypes = ref([]);
 
                 const isPageAllSelected = computed(() => files.value.length > 0 && files.value.every(f => selectedFiles.value.includes(f.id)));
 
@@ -475,6 +489,7 @@
                     archiving.value = true;
 
                     try {
+                        const filteredIds = files.value.filter(f => archiveTypes.value.length === 0 || archiveTypes.value.some(t => f.extension === t || f.extension.endsWith(t))).map(f => f.id);
                         const url = archiveSmart.value ? '/archive' : '/archive-simple';
                         const res = await fetch(url, {
                             method: 'POST',
@@ -518,6 +533,17 @@
                     }
                 }
 
+                function toggleArchiveType(ext) {
+                    const exts = {'.doc': ['.doc','.docx'], '.pdf': ['.pdf'], '.csv': ['.csv','.xls','.xlsx'], '.ppt': ['.ppt','.pptx'], '.jpg': ['.jpg','.jpeg','.png','.gif','.bmp']};
+                    const targets = exts[ext] || [ext];
+                    const hasAll = targets.every(e => archiveTypes.value.includes(e));
+                    if (hasAll) {
+                        targets.forEach(e => { const i = archiveTypes.value.indexOf(e); if(i > -1) archiveTypes.value.splice(i, 1); });
+                    } else {
+                        targets.forEach(e => { if(!archiveTypes.value.includes(e)) archiveTypes.value.push(e); });
+                    }
+                }
+
                 function togglePageAll(event) {
                     if (event.target.checked) {
                         selectedFiles.value = files.value.map(f => f.id);
@@ -536,18 +562,19 @@
 
                 watch(currentPage, loadFiles);
 
-                loadStats();
-                loadFiles();
+                archiving.value = false;
+                        loadStats();
+                        loadFiles();
 
                 return {
                     scanPath, scanning, computing, deduplicating, renaming,
-                    scanProgress, scanStatus, files, selectedFiles, archiveSmart, selectAllGlobal,
+                    scanProgress, scanStatus, files, selectedFiles, archiveTypes, archiveSmart, selectAllGlobal,
                     isPageAllSelected, updatePageAllState, toggleSelectAll, togglePageAll,
                     searchKeyword, filterDuplicate, selectedExt,
                     currentPage, pageSize, totalFiles, totalPages,
                     logs, archiveDir, archiveMode, stats,
                     startScan, stopScan, loadFiles, computeMD5,
-                    deduplicate, renameByDate, deleteFile, archiveFiles, archiving,
+                    deduplicate, renameByDate, deleteFile, archiveFiles, archiving, toggleArchiveType,
                     debounceSearch, formatSize
                 };
             }
