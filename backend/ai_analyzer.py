@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import shutil
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
@@ -8,6 +9,35 @@ from database import FileEntry
 from ai_provider import get_ai_provider
 
 STOP_WORDS = {'的', '了', '和', '与', '或', '是', '在', '有', '为', '以', 'the', 'and', 'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by', 'from', 'a', 'an', 'is'}
+
+AI_EXT_TYPE_MAP = {
+    'doc': 'Word文档', 'docx': 'Word文档',
+    'pdf': 'PDF文档',
+    'txt': '文本文件', 'md': 'Markdown文档', 'log': '日志文件',
+    'csv': '表格文件', 'xls': '表格文件', 'xlsx': '表格文件', 'xlsb': '表格文件',
+    'ppt': 'PPT演示', 'pptx': 'PPT演示', 'pptm': 'PPT演示',
+    'jpg': '图片', 'jpeg': '图片', 'png': '图片', 'gif': '图片', 'bmp': '图片', 'ico': '图片', 'webp': '图片', 'svg': '图片', 'tiff': '图片',
+    'mp3': '音频', 'wav': '音频', 'flac': '音频', 'aac': '音频', 'ogg': '音频', 'wma': '音频',
+    'mp4': '视频', 'avi': '视频', 'mkv': '视频', 'mov': '视频', 'wmv': '视频', 'flv': '视频', 'webm': '视频',
+    'zip': '压缩包', 'rar': '压缩包', '7z': '压缩包', 'tar': '压缩包', 'gz': '压缩包',
+    'exe': '程序文件', 'msi': '安装程序', 'dmg': '安装程序', 'pkg': '安装程序',
+    'html': '网页文件', 'htm': '网页文件', 'css': '网页文件', 'js': '脚本文件', 'ts': '脚本文件',
+    'py': 'Python代码', 'java': 'Java代码', 'cpp': 'C++代码', 'c': 'C代码', 'h': '头文件', 'cs': 'C#代码', 'go': 'Go代码', 'rs': 'Rust代码', 'php': 'PHP代码',
+    'json': '数据文件', 'xml': '数据文件', 'yaml': '数据文件', 'yml': '数据文件', 'toml': '数据文件', 'ini': '配置文件', 'cfg': '配置文件', 'conf': '配置文件',
+    'psd': '设计文件', 'ai': '设计文件', 'sketch': '设计文件', 'xd': '设计文件', 'fig': '设计文件',
+    'dwg': 'CAD图纸', 'dxf': 'CAD图纸', 'sldprt': 'CAD文件', 'slddrw': 'CAD文件',
+    'ttf': '字体文件', 'otf': '字体文件', 'woff': '字体文件', 'woff2': '字体文件',
+    'db': '数据库文件', 'sqlite': '数据库文件', 'mdb': '数据库文件',
+}
+
+def get_file_category(ext: str) -> str:
+    return AI_EXT_TYPE_MAP.get(ext.lower().lstrip('.'), '其他文件')
+
+def get_base_name(name: str) -> str:
+    name = re.sub(r'[_-]?\d+$', '', name)
+    name = re.sub(r'[_-]?(copy|副本|备份|backup)$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s+', '', name)
+    return name.lower()
 
 PROJECT_INDICATORS = [
     'project', '项目', '作业', 'report', '报告', '论文', 'thesis',
@@ -304,9 +334,8 @@ def analyze_files(db: Session, file_ids: List[int], ai_provider=None) -> Dict[st
 
 def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: str = 'copy', ai_provider=None) -> List[Dict[str, Any]]:
     """
-    使用AI分析结果归档文件
+    使用AI按文件类型分类归档文件
     """
-    analyzer = AIAnalyzer(ai_provider)
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
 
     if not entries:
@@ -316,60 +345,73 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
     temp_dir = os.path.join(target_dir, "temp")
     os.makedirs(temp_dir, exist_ok=True)
 
-    groups = analyzer.group_files_by_semantic(entries)
+    by_category = {}
+    for entry in entries:
+        cat = get_file_category(entry.extension)
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append(entry)
 
     results = []
     path_updates = []
 
-    for group_name, group_files in groups.items():
-        safe_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_name)
-        group_dir = os.path.join(target_dir, safe_group_name)
-        os.makedirs(group_dir, exist_ok=True)
+    for category, cat_files in by_category.items():
+        cat_dir = os.path.join(target_dir, category)
+        os.makedirs(cat_dir, exist_ok=True)
 
-        for file in group_files:
-            try:
-                temp_filename = f"{os.path.splitext(file.name)[0]}_temp{os.path.splitext(file.name)[1]}"
-                temp_path = os.path.join(temp_dir, temp_filename)
+        similar_groups = {}
+        for f in cat_files:
+            base = get_base_name(f.name)
+            if base not in similar_groups:
+                similar_groups[base] = []
+            similar_groups[base].append(f)
 
-                if mode == 'move':
-                    import shutil
-                    shutil.move(file.path, temp_path)
-                else:
-                    import shutil
-                    shutil.copy2(file.path, temp_path)
+        for base_name, group_files in similar_groups.items():
+            for i, file in enumerate(group_files):
+                try:
+                    if i == 0:
+                        final_filename = file.name
+                    else:
+                        ext = os.path.splitext(file.name)[1]
+                        final_filename = f"{base_name}_{i+1:02d}{ext}"
 
-                final_filename = file.name
-                final_path = os.path.join(group_dir, final_filename)
+                    final_path = os.path.join(cat_dir, final_filename)
+                    if os.path.exists(final_path):
+                        ext = os.path.splitext(file.name)[1]
+                        counter = 1
+                        while os.path.exists(final_path):
+                            final_filename = f"{base_name}_{counter:02d}{ext}"
+                            final_path = os.path.join(cat_dir, final_filename)
+                            counter += 1
 
-                if os.path.exists(final_path):
-                    base, ext = os.path.splitext(final_filename)
-                    counter = 1
-                    while os.path.exists(final_path):
-                        final_filename = f"{base}_{counter:02d}{ext}"
-                        final_path = os.path.join(group_dir, final_filename)
-                        counter += 1
+                    temp_filename = f"{os.path.splitext(file.name)[0]}_temp{os.path.splitext(file.name)[1]}"
+                    temp_path = os.path.join(temp_dir, temp_filename)
 
-                import shutil
-                shutil.move(temp_path, final_path)
+                    if mode == 'move':
+                        shutil.move(file.path, temp_path)
+                    else:
+                        shutil.copy2(file.path, temp_path)
 
-                path_updates.append((file, final_path, final_filename, group_name))
+                    shutil.move(temp_path, final_path)
 
-                results.append({
-                    "id": file.id,
-                    "name": file.name,
-                    "group": group_name,
-                    "new_path": final_path,
-                    "success": True
-                })
-            except Exception as e:
-                results.append({
-                    "id": file.id,
-                    "name": file.name,
-                    "error": str(e),
-                    "success": False
-                })
+                    path_updates.append((file, final_path, final_filename, category))
 
-    for file, new_path, new_name, group_name in path_updates:
+                    results.append({
+                        "id": file.id,
+                        "name": file.name,
+                        "category": category,
+                        "new_path": final_path,
+                        "success": True
+                    })
+                except Exception as e:
+                    results.append({
+                        "id": file.id,
+                        "name": file.name,
+                        "error": str(e),
+                        "success": False
+                    })
+
+    for file, new_path, new_name, category in path_updates:
         file.path = new_path
         file.name = new_name
 
