@@ -17,6 +17,18 @@ from scanner import (
     stop_scan, ALL_SUPPORTED, calculate_md5, SCAN_STOP_FLAG
 )
 from archiver import deduplicate_files, rename_duplicates_by_date, get_unique_filename, archive_files_smart
+from ai_analyzer import analyze_files, ai_archive_files
+from auto_mode import auto_detect_mode
+from file_manager import (
+    check_and_update_unavailable_files,
+    get_all_source_paths,
+    get_source_stats,
+    suspend_files_by_source,
+    restore_files_by_source,
+    delete_files_by_source,
+    suspend_files_by_ids,
+    restore_files_by_ids
+)
 
 app = FastAPI(title="FileIndexer API", version="1.0.0")
 
@@ -168,7 +180,8 @@ async def get_files(
     page_size: int = Query(50, ge=1, le=500),
     extension: str = None,
     is_duplicate: bool = None,
-    keyword: str = None
+    keyword: str = None,
+    status: str = None
 ):
     db = SessionLocal()
     query = db.query(FileEntry)
@@ -179,6 +192,10 @@ async def get_files(
         query = query.filter(FileEntry.is_duplicate == is_duplicate)
     if keyword:
         query = query.filter(FileEntry.name.contains(keyword))
+    if status:
+        query = query.filter(FileEntry.status == status)
+    else:
+        query = query.filter(FileEntry.status != 'suspended')
 
     total = query.count()
     items = query.order_by(FileEntry.id.desc()).offset((page-1)*page_size).limit(page_size).all()
@@ -202,7 +219,9 @@ async def get_files(
             "created_time": e.created_time.isoformat() if e.created_time else None,
             "modified_time": e.modified_time.isoformat() if e.modified_time else None,
             "is_duplicate": e.is_duplicate,
-            "duplicate_of_id": e.duplicate_of_id
+            "duplicate_of_id": e.duplicate_of_id,
+            "status": e.status,
+            "source_path": e.source_path
         } for e in items]
     }
 
@@ -210,7 +229,8 @@ async def get_files(
 async def get_all_file_ids(
     extension: str = None,
     is_duplicate: bool = None,
-    keyword: str = None
+    keyword: str = None,
+    status: str = None
 ):
     db = SessionLocal()
     query = db.query(FileEntry.id)
@@ -221,6 +241,10 @@ async def get_all_file_ids(
         query = query.filter(FileEntry.is_duplicate == is_duplicate)
     if keyword:
         query = query.filter(FileEntry.name.contains(keyword))
+    if status:
+        query = query.filter(FileEntry.status == status)
+    else:
+        query = query.filter(FileEntry.status != 'suspended')
 
     ids = [row[0] for row in query.all()]
     db.close()
@@ -312,20 +336,26 @@ async def archive_files_simple(request: dict):
         raise HTTPException(status_code=400, detail="目标目录不能为空")
 
     os.makedirs(target_dir, exist_ok=True)
+    temp_dir = os.path.join(target_dir, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
 
     db = SessionLocal()
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
 
     results = []
     for entry in entries:
-        unique_name = get_unique_filename(target_dir, entry.name)
-        target_path = os.path.join(target_dir, unique_name)
-
         try:
+            temp_name = get_unique_filename(temp_dir, entry.name)
+            temp_path = os.path.join(temp_dir, temp_name)
+
             if mode == "move":
-                shutil.move(entry.path, target_path)
+                shutil.move(entry.path, temp_path)
             else:
-                shutil.copy2(entry.path, target_path)
+                shutil.copy2(entry.path, temp_path)
+
+            unique_name = get_unique_filename(target_dir, entry.name)
+            target_path = os.path.join(target_dir, unique_name)
+            shutil.move(temp_path, target_path)
 
             entry.path = target_path
             entry.name = unique_name
@@ -413,6 +443,121 @@ async def get_stats():
         "total_size": total_size,
         "by_extension": by_extension
     }
+
+@app.post("/ai/analyze")
+async def ai_analyze_files(request: dict):
+    """
+    使用AI分析文件，基于文件名和内容
+    """
+    file_ids = request.get("file_ids", [])
+    ai_mode = request.get("ai_mode", "local")
+    api_key = request.get("api_key", None)
+
+    db = SessionLocal()
+    result = analyze_files(db, file_ids, ai_mode, api_key)
+    db.close()
+    return result
+
+@app.post("/ai/archive")
+async def ai_archive_files_endpoint(request: dict):
+    """
+    使用AI分析结果归档文件
+    """
+    file_ids = request.get("file_ids", [])
+    target_dir = request.get("target_dir", "")
+    mode = request.get("mode", "copy")
+    ai_mode = request.get("ai_mode", "local")
+    api_key = request.get("api_key", None)
+
+    if not target_dir:
+        raise HTTPException(status_code=400, detail="目标目录不能为空")
+
+    db = SessionLocal()
+    results = ai_archive_files(db, file_ids, target_dir, mode, ai_mode, api_key)
+    db.close()
+    return {"results": results}
+
+@app.post("/auto/detect-mode")
+async def auto_detect_mode_endpoint(file_ids: List[int]):
+    """
+    自动检测文件的处理模式
+    """
+    db = SessionLocal()
+    result = auto_detect_mode(db, file_ids)
+    db.close()
+    return result
+
+@app.post("/check-unavailable")
+async def check_unavailable():
+    """
+    检测并标记不可访问的文件
+    """
+    db = SessionLocal()
+    result = check_and_update_unavailable_files(db)
+    db.close()
+    return result
+
+@app.get("/source-paths")
+async def get_source_paths():
+    """
+    获取所有来源路径及其统计信息
+    """
+    db = SessionLocal()
+    stats = get_source_stats(db)
+    db.close()
+    return {"sources": stats}
+
+@app.post("/source/{source_path}/suspend")
+async def suspend_source(source_path: str):
+    """
+    挂起指定来源路径下的所有文件
+    """
+    db = SessionLocal()
+    result = suspend_files_by_source(db, source_path)
+    db.close()
+    return result
+
+@app.post("/source/{source_path}/restore")
+async def restore_source(source_path: str):
+    """
+    恢复指定来源路径下的所有文件
+    """
+    db = SessionLocal()
+    result = restore_files_by_source(db, source_path)
+    db.close()
+    return result
+
+@app.delete("/source/{source_path}")
+async def delete_source(source_path: str):
+    """
+    删除指定来源路径下的所有文件记录
+    """
+    db = SessionLocal()
+    result = delete_files_by_source(db, source_path)
+    db.close()
+    return result
+
+@app.post("/files/suspend")
+async def suspend_files(request: dict):
+    """
+    挂起指定文件
+    """
+    file_ids = request.get("file_ids", [])
+    db = SessionLocal()
+    result = suspend_files_by_ids(db, file_ids)
+    db.close()
+    return result
+
+@app.post("/files/restore")
+async def restore_files(request: dict):
+    """
+    恢复指定文件
+    """
+    file_ids = request.get("file_ids", [])
+    db = SessionLocal()
+    result = restore_files_by_ids(db, file_ids)
+    db.close()
+    return result
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):

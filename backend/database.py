@@ -26,6 +26,8 @@ class FileEntry(Base):
     scan_time = Column(DateTime, default=datetime.now)
     is_duplicate = Column(Boolean, default=False)
     duplicate_of_id = Column(Integer, nullable=True)
+    status = Column(String(20), default='available')
+    source_path = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 

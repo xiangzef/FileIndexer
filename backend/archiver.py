@@ -54,9 +54,11 @@ def get_unique_filename(target_dir: str, filename: str) -> str:
     if not os.path.exists(target_path):
         return filename
 
+    # 使用日期时间+序号的格式，更简洁且有意义
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     counter = 1
     while True:
-        new_filename = f"{base}_{counter}{ext}"
+        new_filename = f"{base}_{timestamp}_{counter}{ext}"
         new_path = os.path.join(target_dir, new_filename)
         if not os.path.exists(new_path):
             return new_filename
@@ -120,7 +122,10 @@ def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode:
     
     yield {"type": "start", "total": len(entries)}
     
+    # 创建目标目录和temp中转目录
     os.makedirs(target_dir, exist_ok=True)
+    temp_dir = os.path.join(target_dir, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
     
     by_category = {}
     for entry in entries:
@@ -153,33 +158,50 @@ def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode:
                 
                 for f in group_files:
                     try:
-                        target_path = os.path.join(group_dir, f['name'])
-                        if os.path.exists(target_path):
-                            target_path = get_unique_filename(group_dir, f['name'])
+                        # 先复制/移动到temp目录作为中转
+                        temp_filename = get_unique_filename(temp_dir, f['name'])
+                        temp_path = os.path.join(temp_dir, temp_filename)
+                        
                         if mode == 'move':
-                            shutil.move(f['path'], target_path)
+                            shutil.move(f['path'], temp_path)
                         else:
-                            shutil.copy2(f['path'], target_path)
-                        yield {"type": "archived", "name": f['name'], "target": target_path, "group": group_dir}
+                            shutil.copy2(f['path'], temp_path)
+                        
+                        # 然后从temp目录移动到最终位置
+                        final_filename = get_unique_filename(group_dir, f['name'])
+                        final_path = os.path.join(group_dir, final_filename)
+                        shutil.move(temp_path, final_path)
+                        
+                        yield {"type": "archived", "name": f['name'], "target": final_path, "group": group_dir}
                     except Exception as e:
                         yield {"type": "error", "file": f['name'], "message": str(e)}
             else:
                 f = group_files[0]
                 try:
-                    target_path = os.path.join(cat_dir, f['name'])
-                    if os.path.exists(target_path):
-                        target_path = get_unique_filename(cat_dir, f['name'])
+                    # 先复制/移动到temp目录作为中转
+                    temp_filename = get_unique_filename(temp_dir, f['name'])
+                    temp_path = os.path.join(temp_dir, temp_filename)
+                    
                     if mode == 'move':
-                        shutil.move(f['path'], target_path)
+                        shutil.move(f['path'], temp_path)
                     else:
-                        shutil.copy2(f['path'], target_path)
-                    yield {"type": "archived", "name": f['name'], "target": target_path}
+                        shutil.copy2(f['path'], temp_path)
+                    
+                    # 然后从temp目录移动到最终位置
+                    final_filename = get_unique_filename(cat_dir, f['name'])
+                    final_path = os.path.join(cat_dir, final_filename)
+                    shutil.move(temp_path, final_path)
+                    
+                    yield {"type": "archived", "name": f['name'], "target": final_path}
                 except Exception as e:
                     yield {"type": "error", "file": f['name'], "message": str(e)}
         
         for entry in entries:
             if get_file_category(entry.extension) == category:
-                entry.path = os.path.join(cat_dir, entry.name)
+                # 由于文件名可能已经被修改，需要更新为最终的文件名
+                final_filename = get_unique_filename(cat_dir, entry.name)
+                entry.path = os.path.join(cat_dir, final_filename)
+                entry.name = final_filename
                 db.commit()
     
     yield {"type": "complete", "total": len(entries)}

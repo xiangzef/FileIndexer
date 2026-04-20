@@ -87,7 +87,7 @@ def scan_directory(
         if stat is None:
             yield {"type": "error", "file": file_path, "message": f"无法访问: {last_error}"}
             continue
-        
+
         ext = os.path.splitext(file_path)[1].lower()
         existing = db.query(FileEntry).filter_by(path=file_path).first()
         if existing:
@@ -104,7 +104,9 @@ def scan_directory(
                 modified_time=datetime.fromtimestamp(stat.st_mtime),
                 scan_time=datetime.now(),
                 is_duplicate=False,
-                duplicate_of_id=None
+                duplicate_of_id=None,
+                status='available',
+                source_path=directory
             )
             db.add(entry)
             db.commit()

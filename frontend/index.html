@@ -23,12 +23,13 @@
         .btn-success:hover { background: #218838; }
         .btn-secondary { background: #6c757d; color: white; }
         .btn-secondary:hover { background: #5a6268; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
-        .input-group input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .input-group input { flex: 1; min-width: 200px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
         .input-group input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
         .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-        .tag { background: #e9ecef; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+        .tag { background: #e9ecef; padding: 4px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; }
         .tag.active { background: #667eea; color: white; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
@@ -53,6 +54,9 @@
         .checkbox { width: 18px; height: 18px; cursor: pointer; }
         .empty-state { text-align: center; padding: 40px; color: #999; }
         .badge { background: #dc3545; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .source-item { padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 10px; }
+        .source-path { word-break: break-all; font-weight: 500; }
+        .source-stats { font-size: 12px; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -119,6 +123,12 @@
                         <button class="btn btn-secondary" @click="renameByDate" :disabled="renaming">
                             {{ renaming ? '处理中...' : '按日期重命名' }}
                         </button>
+                        <button class="btn btn-primary" @click="autoDetectMode" :disabled="selectedFiles.length === 0 || autoDetecting">
+                            {{ autoDetecting ? '检测中...' : '自动模式' }}
+                        </button>
+                        <button class="btn btn-primary" @click="aiAnalyze" :disabled="selectedFiles.length === 0 || aiAnalyzing">
+                            {{ aiAnalyzing ? '分析中...' : 'AI分析' }}
+                        </button>
                     </div>
                 </div>
 
@@ -166,6 +176,7 @@
                                 </span>
                             </td>
                             <td>
+                                <button class="btn btn-secondary btn-sm" @click="suspendFile(file)" title="挂起">挂起</button>
                                 <button class="btn btn-danger btn-sm" @click="deleteFile(file)" title="删除">删除</button>
                             </td>
                         </tr>
@@ -190,9 +201,21 @@
                     <label style="display:flex;align-items:center;gap:5px;">
                         <input type="checkbox" v-model="archiveSmart"> 智能分类
                     </label>
+                    <label style="display:flex;align-items:center;gap:5px;">
+                        <input type="checkbox" v-model="useAIArchive"> AI归档
+                    </label>
+                    <select v-model="aiMode" style="padding:12px;border:1px solid #ddd;border-radius:8px;" v-if="useAIArchive">
+                        <option value="local">本地AI</option>
+                        <option value="cloud">云端AI</option>
+                    </select>
                     <button class="btn btn-primary" @click="archiveFiles" :disabled="selectedFiles.length === 0 || archiving">
                         {{ archiving ? '归档中...' : '归档 (' + selectedFiles.length + ')' }}
                     </button>
+                </div>
+                <div v-if="useAIArchive" style="margin-top:10px;">
+                    <div class="input-group">
+                        <input type="text" v-model="apiKey" placeholder="云端AI API密钥（可选）" v-if="aiMode === 'cloud'">
+                    </div>
                 </div>
                 <div style="margin-top:10px;padding:10px;background:#f8f9fa;border-radius:8px;">
                     <div style="margin-bottom:8px;font-weight:500;">选择归档类型：</div>
@@ -206,6 +229,44 @@
                     </div>
                 </div>
             </div>
+
+            <div class="card">
+                <div class="card-title">来源管理</div>
+                <div style="margin-bottom:15px;">
+                    <button class="btn btn-secondary" @click="checkUnavailable" :disabled="checkingUnavailable">
+                        {{ checkingUnavailable ? '检测中...' : '检测不可用文件' }}
+                    </button>
+                    <button class="btn btn-secondary" @click="loadSourceStats" style="margin-left:10px;">
+                        刷新来源
+                    </button>
+                    <span style="margin-left:15px;color:#666;font-size:13px;" v-if="unavailableCount > 0">
+                        当前有 <strong>{{ unavailableCount }}</strong> 个文件不可访问
+                    </span>
+                </div>
+                <div v-if="sourceStats.length > 0">
+                    <div v-for="source in sourceStats" :key="source.source_path" class="source-item">
+                        <div class="flex-between">
+                            <div style="flex:1;">
+                                <div class="source-path">{{ source.source_path }}</div>
+                                <div class="source-stats">
+                                    共 {{ source.total }} 个文件 |
+                                    可用: <span style="color:green;">{{ source.available }}</span> |
+                                    不可用: <span style="color:red;">{{ source.unavailable }}</span> |
+                                    已挂起: <span style="color:#888;">{{ source.suspended }}</span>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:5px;margin-left:15px;">
+                                <button class="btn btn-secondary btn-sm" @click="suspendSource(source.source_path)" title="挂起该来源下所有文件">挂起</button>
+                                <button class="btn btn-secondary btn-sm" @click="restoreSource(source.source_path)" title="恢复该来源下所有文件">恢复</button>
+                                <button class="btn btn-danger btn-sm" @click="deleteSource(source.source_path)" title="删除该来源下所有文件记录">删除</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else style="color:#999;text-align:center;padding:30px;">
+                    暂无来源数据，请先扫描目录
+                </div>
+            </div>
         </div>
     </div>
 
@@ -215,7 +276,6 @@
         createApp({
             setup() {
                 const scanPath = ref('');
-                const scanPathHistory = ref([]);
                 const scanning = ref(false);
                 const computing = ref(false);
                 const deduplicating = ref(false);
@@ -238,9 +298,17 @@
                 const stats = ref({ total_files: 0, total_duplicates: 0, total_size: 0, by_extension: {} });
                 const archiving = ref(false);
                 const archiveTypes = ref([]);
+                const aiAnalyzing = ref(false);
+                const autoDetecting = ref(false);
+                const useAIArchive = ref(false);
+                const aiMode = ref('local');
+                const apiKey = ref('');
+                const aiAnalysisResult = ref(null);
+                const sourceStats = ref([]);
+                const unavailableCount = ref(0);
+                const checkingUnavailable = ref(false);
 
                 const isPageAllSelected = computed(() => files.value.length > 0 && files.value.every(f => selectedFiles.value.includes(f.id)));
-
                 const totalPages = computed(() => Math.ceil(totalFiles.value / pageSize.value));
 
                 let searchTimer = null;
@@ -258,6 +326,88 @@
                     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
                     const i = Math.floor(Math.log(bytes) / Math.log(k));
                     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+
+                async function loadSourceStats() {
+                    try {
+                        const res = await fetch('/source-paths');
+                        const data = await res.json();
+                        sourceStats.value = data.sources || [];
+                        unavailableCount.value = data.sources.reduce((sum, s) => sum + s.unavailable, 0);
+                    } catch (e) {
+                        console.error('加载来源统计失败', e);
+                    }
+                }
+
+                async function checkUnavailable() {
+                    checkingUnavailable.value = true;
+                    addLog('info', '开始检测不可用文件...');
+                    try {
+                        const res = await fetch('/check-unavailable', { method: 'POST' });
+                        const data = await res.json();
+                        addLog('success', `检测完成: ${data.unavailable_count} 个文件不可访问`);
+                        unavailableCount.value = data.unavailable_count;
+                        loadSourceStats();
+                        loadFiles();
+                    } catch (e) {
+                        addLog('error', '检测失败: ' + e.message);
+                    } finally {
+                        checkingUnavailable.value = false;
+                    }
+                }
+
+                async function suspendSource(sourcePath) {
+                    if (!confirm(`确定挂起来源 "${sourcePath}" 下的所有文件？挂起后这些文件将不显示在列表中。`)) return;
+                    try {
+                        const res = await fetch(`/source/${encodeURIComponent(sourcePath)}/suspend`, { method: 'POST' });
+                        const data = await res.json();
+                        addLog('success', `已挂起 ${data.suspended_count} 个文件`);
+                        loadSourceStats();
+                        loadFiles();
+                    } catch (e) {
+                        addLog('error', '挂起失败: ' + e.message);
+                    }
+                }
+
+                async function restoreSource(sourcePath) {
+                    try {
+                        const res = await fetch(`/source/${encodeURIComponent(sourcePath)}/restore`, { method: 'POST' });
+                        const data = await res.json();
+                        addLog('success', `已恢复 ${data.restored_count} 个文件`);
+                        loadSourceStats();
+                        loadFiles();
+                    } catch (e) {
+                        addLog('error', '恢复失败: ' + e.message);
+                    }
+                }
+
+                async function deleteSource(sourcePath) {
+                    if (!confirm(`确定删除来源 "${sourcePath}" 下的所有文件记录？此操作不会删除实际文件。`)) return;
+                    try {
+                        const res = await fetch(`/source/${encodeURIComponent(sourcePath)}`, { method: 'DELETE' });
+                        const data = await res.json();
+                        addLog('success', `已删除 ${data.deleted_count} 个文件记录`);
+                        loadSourceStats();
+                        loadFiles();
+                        loadStats();
+                    } catch (e) {
+                        addLog('error', '删除失败: ' + e.message);
+                    }
+                }
+
+                async function suspendFile(file) {
+                    try {
+                        const res = await fetch('/files/suspend', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_ids: [file.id] })
+                        });
+                        addLog('success', `已挂起文件: ${file.name}`);
+                        loadFiles();
+                        loadSourceStats();
+                    } catch (e) {
+                        addLog('error', '挂起失败: ' + e.message);
+                    }
                 }
 
                 async function startScan() {
@@ -312,6 +462,7 @@
                         scanning.value = false;
                         loadStats();
                         loadFiles();
+                        loadSourceStats();
                     }
                 }
 
@@ -480,6 +631,60 @@
                     }
                 }
 
+                async function autoDetectMode() {
+                    autoDetecting.value = true;
+                    addLog('info', '开始自动检测文件模式...');
+
+                    try {
+                        const res = await fetch('/auto/detect-mode', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(selectedFiles.value)
+                        });
+                        const data = await res.json();
+                        addLog('success', `自动检测完成: AI模式 ${data.ai.length} 个文件, 通用模式 ${data.general.length} 个文件`);
+
+                        if (data.ai.length > 0) {
+                            if (confirm(`检测到 ${data.ai.length} 个文件适合AI模式处理，是否使用AI分析？`)) {
+                                selectedFiles.value = data.ai;
+                                aiAnalyze();
+                            }
+                        }
+                    } catch (e) {
+                        addLog('error', '自动检测失败: ' + e.message);
+                    } finally {
+                        autoDetecting.value = false;
+                    }
+                }
+
+                async function aiAnalyze() {
+                    aiAnalyzing.value = true;
+                    addLog('info', '开始AI分析文件...');
+
+                    try {
+                        const res = await fetch('/ai/analyze', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                file_ids: selectedFiles.value,
+                                ai_mode: aiMode.value,
+                                api_key: apiKey.value
+                            })
+                        });
+                        const data = await res.json();
+                        aiAnalysisResult.value = data;
+                        addLog('success', `AI分析完成: ${data.total_files} 个文件`);
+
+                        if (data.summary) {
+                            alert('AI分析结果:\n' + data.summary);
+                        }
+                    } catch (e) {
+                        addLog('error', 'AI分析失败: ' + e.message);
+                    } finally {
+                        aiAnalyzing.value = false;
+                    }
+                }
+
                 async function archiveFiles() {
                     if (!archiveDir.value.trim()) {
                         alert('请输入目标目录');
@@ -489,23 +694,40 @@
                     archiving.value = true;
 
                     try {
-                        const filteredIds = files.value.filter(f => archiveTypes.value.length === 0 || archiveTypes.value.some(t => f.extension === t || f.extension.endsWith(t))).map(f => f.id);
-                        const url = archiveSmart.value ? '/archive' : '/archive-simple';
-                        const res = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                file_ids: selectedFiles.value,
-                                target_dir: archiveDir.value,
-                                mode: archiveMode.value
-                            })
-                        });
-                        const data = await res.json();
-                        addLog('success', `归档完成`);
+                        if (useAIArchive.value) {
+                            const res = await fetch('/ai/archive', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    file_ids: selectedFiles.value,
+                                    target_dir: archiveDir.value,
+                                    mode: archiveMode.value,
+                                    ai_mode: aiMode.value,
+                                    api_key: apiKey.value
+                                })
+                            });
+                            const data = await res.json();
+                            addLog('success', `AI归档完成`);
+                        } else {
+                            const url = archiveSmart.value ? '/archive' : '/archive-simple';
+                            const res = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    file_ids: selectedFiles.value,
+                                    target_dir: archiveDir.value,
+                                    mode: archiveMode.value
+                                })
+                            });
+                            const data = await res.json();
+                            addLog('success', `归档完成`);
+                        }
                         selectedFiles.value = [];
                         loadFiles();
                     } catch (e) {
                         addLog('error', '归档失败: ' + e.message);
+                    } finally {
+                        archiving.value = false;
                     }
                 }
 
@@ -562,9 +784,9 @@
 
                 watch(currentPage, loadFiles);
 
-                archiving.value = false;
-                        loadStats();
-                        loadFiles();
+                loadStats();
+                loadFiles();
+                loadSourceStats();
 
                 return {
                     scanPath, scanning, computing, deduplicating, renaming,
@@ -572,9 +794,13 @@
                     isPageAllSelected, updatePageAllState, toggleSelectAll, togglePageAll,
                     searchKeyword, filterDuplicate, selectedExt,
                     currentPage, pageSize, totalFiles, totalPages,
-                    logs, archiveDir, archiveMode, stats,
+                    logs, archiveDir, archiveMode, stats, archiving, toggleArchiveType,
+                    aiAnalyzing, autoDetecting, useAIArchive, aiMode, apiKey, aiAnalysisResult,
+                    sourceStats, unavailableCount, checkingUnavailable,
                     startScan, stopScan, loadFiles, computeMD5,
-                    deduplicate, renameByDate, deleteFile, archiveFiles, archiving, toggleArchiveType,
+                    deduplicate, renameByDate, deleteFile, archiveFiles,
+                    autoDetectMode, aiAnalyze,
+                    loadSourceStats, checkUnavailable, suspendSource, restoreSource, deleteSource, suspendFile,
                     debounceSearch, formatSize
                 };
             }
