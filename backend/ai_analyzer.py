@@ -16,9 +16,15 @@ PROJECT_INDICATORS = [
 ]
 
 class AIAnalyzer:
-    def __init__(self, ai_mode: str = "local", api_key: Optional[str] = None):
-        self.ai_provider = get_ai_provider(ai_mode, api_key)
-        self.ai_mode = ai_mode
+    def __init__(self, ai_provider=None):
+        if ai_provider is None:
+            from ai_provider import AIProvider
+            self.ai_provider = AIProvider("local")
+        elif isinstance(ai_provider, str):
+            from ai_provider import AIProvider
+            self.ai_provider = AIProvider(ai_provider)
+        else:
+            self.ai_provider = ai_provider
 
     def extract_keywords(self, filename: str) -> List[str]:
         """
@@ -261,11 +267,11 @@ class AIAnalyzer:
 
         return summary
 
-def analyze_files(db: Session, file_ids: List[int], ai_mode: str = "local", api_key: Optional[str] = None) -> Dict[str, Any]:
+def analyze_files(db: Session, file_ids: List[int], ai_provider=None) -> Dict[str, Any]:
     """
     分析指定文件
     """
-    analyzer = AIAnalyzer(ai_mode, api_key)
+    analyzer = AIAnalyzer(ai_provider)
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
 
     if not entries:
@@ -293,15 +299,14 @@ def analyze_files(db: Session, file_ids: List[int], ai_mode: str = "local", api_
         "analyses": analyses,
         "groups": {k: [e.id for e in v] for k, v in groups.items()},
         "suggested_folder_name": folder_name,
-        "summary": summary,
-        "ai_mode": ai_mode
+        "summary": summary
     }
 
-def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: str = 'copy', ai_mode: str = "local", api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: str = 'copy', ai_provider=None) -> List[Dict[str, Any]]:
     """
     使用AI分析结果归档文件
     """
-    analyzer = AIAnalyzer(ai_mode, api_key)
+    analyzer = AIAnalyzer(ai_provider)
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
 
     if not entries:
@@ -314,6 +319,7 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
     groups = analyzer.group_files_by_semantic(entries)
 
     results = []
+    path_updates = []
 
     for group_name, group_files in groups.items():
         safe_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_name)
@@ -346,9 +352,7 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
                 import shutil
                 shutil.move(temp_path, final_path)
 
-                file.path = final_path
-                file.name = final_filename
-                db.commit()
+                path_updates.append((file, final_path, final_filename, group_name))
 
                 results.append({
                     "id": file.id,
@@ -364,5 +368,18 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
                     "error": str(e),
                     "success": False
                 })
+
+    for file, new_path, new_name, group_name in path_updates:
+        file.path = new_path
+        file.name = new_name
+
+    db.commit()
+
+    try:
+        if os.path.exists(temp_dir):
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
 
     return results

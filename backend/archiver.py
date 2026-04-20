@@ -115,18 +115,17 @@ def group_similar_files(files: List[Dict]) -> Dict[str, List[Dict]]:
 
 def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode: str = 'copy') -> Generator[Dict[str, Any], None, None]:
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
-    
+
     if not entries:
         yield {"type": "error", "message": "没有选择文件"}
         return
-    
+
     yield {"type": "start", "total": len(entries)}
-    
-    # 创建目标目录和temp中转目录
+
     os.makedirs(target_dir, exist_ok=True)
     temp_dir = os.path.join(target_dir, "temp")
     os.makedirs(temp_dir, exist_ok=True)
-    
+
     by_category = {}
     for entry in entries:
         cat = get_file_category(entry.extension)
@@ -138,16 +137,18 @@ def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode:
             'path': entry.path,
             'size': entry.size,
             'extension': entry.extension,
-            'modified_time': entry.modified_time
+            'modified_time': entry.modified_time,
+            'entry': entry
         })
-    
+
+    path_updates = []
     for category, files in by_category.items():
         cat_dir = os.path.join(target_dir, category)
         os.makedirs(cat_dir, exist_ok=True)
         yield {"type": "category", "category": category, "count": len(files)}
-        
+
         groups = group_similar_files(files)
-        
+
         for group_key, group_files in groups.items():
             if len(group_files) > 1:
                 earliest = group_files[0]
@@ -155,55 +156,57 @@ def archive_files_smart(db: Session, file_ids: List[int], target_dir: str, mode:
                 date_str = earliest['modified_time'].strftime("%Y%m%d") if earliest.get('modified_time') else "无日期"
                 group_dir = os.path.join(cat_dir, f"{base_name}_{date_str}_类似文件组")
                 os.makedirs(group_dir, exist_ok=True)
-                
+
                 for f in group_files:
                     try:
-                        # 先复制/移动到temp目录作为中转
                         temp_filename = get_unique_filename(temp_dir, f['name'])
                         temp_path = os.path.join(temp_dir, temp_filename)
-                        
+
                         if mode == 'move':
                             shutil.move(f['path'], temp_path)
                         else:
                             shutil.copy2(f['path'], temp_path)
-                        
-                        # 然后从temp目录移动到最终位置
+
                         final_filename = get_unique_filename(group_dir, f['name'])
                         final_path = os.path.join(group_dir, final_filename)
                         shutil.move(temp_path, final_path)
-                        
+
+                        path_updates.append((f['entry'], final_path, final_filename))
                         yield {"type": "archived", "name": f['name'], "target": final_path, "group": group_dir}
                     except Exception as e:
                         yield {"type": "error", "file": f['name'], "message": str(e)}
             else:
                 f = group_files[0]
                 try:
-                    # 先复制/移动到temp目录作为中转
                     temp_filename = get_unique_filename(temp_dir, f['name'])
-                    temp_path = os.path.join(temp_dir, temp_filename)
-                    
+                    temp_path = os.path.join(temp_dir, f['name'])
+
                     if mode == 'move':
                         shutil.move(f['path'], temp_path)
                     else:
                         shutil.copy2(f['path'], temp_path)
-                    
-                    # 然后从temp目录移动到最终位置
+
                     final_filename = get_unique_filename(cat_dir, f['name'])
                     final_path = os.path.join(cat_dir, final_filename)
                     shutil.move(temp_path, final_path)
-                    
+
+                    path_updates.append((f['entry'], final_path, final_filename))
                     yield {"type": "archived", "name": f['name'], "target": final_path}
                 except Exception as e:
                     yield {"type": "error", "file": f['name'], "message": str(e)}
-        
-        for entry in entries:
-            if get_file_category(entry.extension) == category:
-                # 由于文件名可能已经被修改，需要更新为最终的文件名
-                final_filename = get_unique_filename(cat_dir, entry.name)
-                entry.path = os.path.join(cat_dir, final_filename)
-                entry.name = final_filename
-                db.commit()
-    
+
+    for entry, new_path, new_name in path_updates:
+        entry.path = new_path
+        entry.name = new_name
+
+    db.commit()
+
+    try:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
     yield {"type": "complete", "total": len(entries)}
 
 def deduplicate_files(db: Session, keep_originals: bool = True) -> Generator[Dict[str, Any], None, None]:

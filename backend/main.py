@@ -11,13 +11,14 @@ import threading
 import asyncio
 from datetime import datetime
 
-from database import engine, SessionLocal, Base, FileEntry
+from database import engine, SessionLocal, Base, FileEntry, ScanRecord
 from scanner import (
     scan_directory, compute_md5_batch, find_duplicates,
     stop_scan, ALL_SUPPORTED, calculate_md5, SCAN_STOP_FLAG
 )
 from archiver import deduplicate_files, rename_duplicates_by_date, get_unique_filename, archive_files_smart
 from ai_analyzer import analyze_files, ai_archive_files
+from ai_provider import get_ai_provider
 from auto_mode import auto_detect_mode
 from file_manager import (
     check_and_update_unavailable_files,
@@ -194,8 +195,6 @@ async def get_files(
         query = query.filter(FileEntry.name.contains(keyword))
     if status:
         query = query.filter(FileEntry.status == status)
-    else:
-        query = query.filter(FileEntry.status != 'suspended')
 
     total = query.count()
     items = query.order_by(FileEntry.id.desc()).offset((page-1)*page_size).limit(page_size).all()
@@ -342,6 +341,7 @@ async def archive_files_simple(request: dict):
     db = SessionLocal()
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
 
+    path_updates = []
     results = []
     for entry in entries:
         try:
@@ -357,10 +357,7 @@ async def archive_files_simple(request: dict):
             target_path = os.path.join(target_dir, unique_name)
             shutil.move(temp_path, target_path)
 
-            entry.path = target_path
-            entry.name = unique_name
-            db.commit()
-
+            path_updates.append((entry, target_path, unique_name))
             results.append({
                 "id": entry.id,
                 "success": True,
@@ -373,7 +370,19 @@ async def archive_files_simple(request: dict):
                 "error": str(e)
             })
 
+    for entry, new_path, new_name in path_updates:
+        entry.path = new_path
+        entry.name = new_name
+
+    db.commit()
     db.close()
+
+    try:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
     return {"results": results}
 
 @app.delete("/files/{file_id}")
@@ -450,11 +459,14 @@ async def ai_analyze_files(request: dict):
     使用AI分析文件，基于文件名和内容
     """
     file_ids = request.get("file_ids", [])
-    ai_mode = request.get("ai_mode", "local")
+    provider = request.get("provider", "ollama")
     api_key = request.get("api_key", None)
+    model = request.get("model", None)
+    base_url = request.get("base_url", None)
 
     db = SessionLocal()
-    result = analyze_files(db, file_ids, ai_mode, api_key)
+    ai_provider = get_ai_provider(provider, api_key, model, base_url)
+    result = analyze_files(db, file_ids, ai_provider)
     db.close()
     return result
 
@@ -466,14 +478,17 @@ async def ai_archive_files_endpoint(request: dict):
     file_ids = request.get("file_ids", [])
     target_dir = request.get("target_dir", "")
     mode = request.get("mode", "copy")
-    ai_mode = request.get("ai_mode", "local")
+    provider = request.get("provider", "ollama")
     api_key = request.get("api_key", None)
+    model = request.get("model", None)
+    base_url = request.get("base_url", None)
 
     if not target_dir:
         raise HTTPException(status_code=400, detail="目标目录不能为空")
 
     db = SessionLocal()
-    results = ai_archive_files(db, file_ids, target_dir, mode, ai_mode, api_key)
+    ai_provider = get_ai_provider(provider, api_key, model, base_url)
+    results = ai_archive_files(db, file_ids, target_dir, mode, ai_provider)
     db.close()
     return {"results": results}
 
@@ -558,6 +573,133 @@ async def restore_files(request: dict):
     result = restore_files_by_ids(db, file_ids)
     db.close()
     return result
+
+@app.get("/scan-records")
+async def get_scan_records():
+    """
+    获取所有扫描记录及统计
+    """
+    db = SessionLocal()
+    records = db.query(ScanRecord).order_by(ScanRecord.scan_time.desc()).all()
+    result = []
+    for r in records:
+        stats = {}
+        if r.stats_json:
+            try:
+                stats = json.loads(r.stats_json)
+            except:
+                pass
+        result.append({
+            "id": r.id,
+            "scan_path": r.scan_path,
+            "scan_time": r.scan_time.isoformat() if r.scan_time else None,
+            "total_files": r.total_files,
+            "total_size": r.total_size,
+            "status": r.status,
+            "stats": stats
+        })
+    db.close()
+    return {"records": result}
+
+@app.post("/scan-records/{record_id}/suspend")
+async def suspend_scan_record(record_id: int):
+    """
+    挂起指定扫描记录下的所有文件
+    """
+    db = SessionLocal()
+    entries = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    count = 0
+    for entry in entries:
+        entry.status = 'suspended'
+        count += 1
+    db.commit()
+    db.close()
+    return {"suspended_count": count}
+
+@app.post("/scan-records/{record_id}/restore")
+async def restore_scan_record(record_id: int):
+    """
+    恢复指定扫描记录下的所有文件
+    """
+    db = SessionLocal()
+    entries = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    count = 0
+    for entry in entries:
+        if entry.status == 'suspended':
+            entry.status = 'available'
+            count += 1
+    db.commit()
+    db.close()
+    return {"restored_count": count}
+
+@app.delete("/scan-records/{record_id}")
+async def delete_scan_record(record_id: int):
+    """
+    删除指定扫描记录下的所有文件记录
+    """
+    db = SessionLocal()
+    entries = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    count = 0
+    for entry in entries:
+        db.delete(entry)
+        count += 1
+    record = db.query(ScanRecord).filter(ScanRecord.id == record_id).first()
+    if record:
+        db.delete(record)
+    db.commit()
+    db.close()
+    return {"deleted_count": count}
+
+@app.post("/files/batch-delete")
+async def batch_delete_files(request: dict):
+    """
+    批量删除选中的文件记录
+    """
+    file_ids = request.get("file_ids", [])
+    db = SessionLocal()
+    count = 0
+    for fid in file_ids:
+        entry = db.query(FileEntry).filter(FileEntry.id == fid).first()
+        if entry:
+            db.delete(entry)
+            count += 1
+    db.commit()
+    db.close()
+    return {"deleted_count": count}
+
+@app.post("/files/batch-suspend")
+async def batch_suspend_files(request: dict):
+    """
+    批量挂起选中的文件
+    """
+    file_ids = request.get("file_ids", [])
+    db = SessionLocal()
+    count = 0
+    for fid in file_ids:
+        entry = db.query(FileEntry).filter(FileEntry.id == fid).first()
+        if entry:
+            entry.status = 'suspended'
+            count += 1
+    db.commit()
+    db.close()
+    return {"suspended_count": count}
+
+@app.post("/files/batch-restore")
+async def batch_restore_files(request: dict):
+    """
+    批量恢复选中的文件
+    """
+    file_ids = request.get("file_ids", [])
+    db = SessionLocal()
+    count = 0
+    for fid in file_ids:
+        entry = db.query(FileEntry).filter(FileEntry.id == fid).first()
+        if entry and entry.status == 'suspended':
+            entry.status = 'available'
+            count += 1
+    db.commit()
+    db.close()
+    return {"restored_count": count}
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):

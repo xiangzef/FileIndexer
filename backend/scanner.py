@@ -2,11 +2,12 @@ import os
 import hashlib
 import threading
 import time
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Generator, Dict, Any
 from sqlalchemy.orm import Session
-from database import FileEntry
+from database import FileEntry, ScanRecord
 
 DOC_EXTENSIONS = {'.doc', '.docx'}
 CSV_EXTENSIONS = {'.csv', '.els', '.elsx'}
@@ -52,9 +53,21 @@ def scan_directory(
 
     _active_scan = threading.current_thread()
 
+    scan_record = ScanRecord(
+        scan_path=directory,
+        scan_time=datetime.now(),
+        total_files=0,
+        total_size=0,
+        status='active'
+    )
+    db.add(scan_record)
+    db.commit()
+
     all_files = []
     for root, dirs, files in os.walk(directory):
         if SCAN_STOP_FLAG.is_set():
+            scan_record.status = 'stopped'
+            db.commit()
             yield {"type": "stopped", "directory": directory}
             return
 
@@ -65,10 +78,19 @@ def scan_directory(
                 all_files.append(full_path)
 
     total = len(all_files)
-    yield {"type": "start", "directory": directory, "total": total}
+    yield {"type": "start", "directory": directory, "total": total, "scan_record_id": scan_record.id}
+
+    stats = {}
+    scanned_count = 0
+    scanned_size = 0
 
     for idx, file_path in enumerate(all_files):
         if SCAN_STOP_FLAG.is_set():
+            scan_record.status = 'stopped'
+            scan_record.total_files = scanned_count
+            scan_record.total_size = scanned_size
+            scan_record.stats_json = json.dumps(stats)
+            db.commit()
             yield {"type": "stopped", "directory": directory}
             return
 
@@ -106,24 +128,42 @@ def scan_directory(
                 is_duplicate=False,
                 duplicate_of_id=None,
                 status='available',
-                source_path=directory
+                source_path=directory,
+                scan_record_id=scan_record.id
             )
             db.add(entry)
-            db.commit()
 
-            if progress_callback and (idx + 1) % 10 == 0:
+            scanned_count += 1
+            scanned_size += stat.st_size
+
+            if ext not in stats:
+                stats[ext] = {"count": 0, "size": 0}
+            stats[ext]["count"] += 1
+            stats[ext]["size"] += stat.st_size
+
+            if scanned_count % 10 == 0:
+                scan_record.total_files = scanned_count
+                scan_record.total_size = scanned_size
+                db.commit()
+
                 yield {
                     "type": "progress",
                     "directory": directory,
                     "current": idx + 1,
                     "total": total,
                     "file": file_path,
-                    "percentage": int((idx + 1) / total * 100)
+                    "percentage": int((idx + 1) / total * 100),
+                    "stats": stats
                 }
         except Exception as e:
             yield {"type": "error", "file": file_path, "message": str(e)}
 
-    yield {"type": "complete", "directory": directory, "total": total}
+    scan_record.total_files = scanned_count
+    scan_record.total_size = scanned_size
+    scan_record.stats_json = json.dumps(stats)
+    db.commit()
+
+    yield {"type": "complete", "directory": directory, "total": total, "stats": stats}
 
 def compute_md5_batch(db: Session, file_ids: List[int]) -> Generator[Dict[str, Any], None, None]:
     entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
