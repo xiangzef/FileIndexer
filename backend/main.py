@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import os
@@ -41,6 +41,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(exc)}"})
 
 Base.metadata.create_all(bind=engine)
 
@@ -810,49 +814,45 @@ async def generate_organize_plan(request: dict):
     learn_mode = request.get("learn_mode", True)
 
     db = SessionLocal()
-
-    rule_storage_path = os.path.join(os.path.dirname(__file__), "learned_rules.json")
-    rule_learner = LearnedRule(rule_storage_path)
-    learned_rules = rule_learner.get_recent_rules(limit=10) if learn_mode else []
-
-    ai_provider = get_ai_provider(provider, api_key, model)
-
-    if file_ids:
-        files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
-    else:
-        files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
-
-    if not files:
-        db.close()
-        return {"error": "没有找到文件"}
-
-    file_data = []
-    for f in files:
-        fd = {
-            "id": f.id,
-            "name": f.name,
-            "path": f.path,
-            "extension": f.extension,
-            "size": f.size,
-            "md5": f.md5
-        }
-
-        if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
-            try:
-                with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
-                    fd['text_preview'] = fp.read()[:2000]
-            except:
-                pass
-
-        file_data.append(fd)
-
-    db.close()
-
-    prompt_builder = OrganizePromptBuilder(learned_rules)
-    system_prompt = prompt_builder.build_system_prompt()
-    user_prompt = prompt_builder.build_user_prompt(file_data, learned_rules, include_content)
-
     try:
+        rule_storage_path = os.path.join(os.path.dirname(__file__), "learned_rules.json")
+        rule_learner = LearnedRule(rule_storage_path)
+        learned_rules = rule_learner.get_recent_rules(limit=10) if learn_mode else []
+
+        ai_provider = get_ai_provider(provider, api_key, model)
+
+        if file_ids:
+            files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+        else:
+            files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+
+        if not files:
+            return {"error": "没有找到文件"}
+
+        file_data = []
+        for f in files:
+            fd = {
+                "id": f.id,
+                "name": f.name,
+                "path": f.path,
+                "extension": f.extension,
+                "size": f.size,
+                "md5": f.md5
+            }
+
+            if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
+                try:
+                    with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
+                        fd['text_preview'] = fp.read()[:2000]
+                except:
+                    pass
+
+            file_data.append(fd)
+
+        prompt_builder = OrganizePromptBuilder(learned_rules)
+        system_prompt = prompt_builder.build_system_prompt()
+        user_prompt = prompt_builder.build_user_prompt(file_data, learned_rules, include_content)
+
         response = ai_provider.chat(system_prompt, user_prompt)
 
         if response.startswith("错误:"):
@@ -870,7 +870,6 @@ async def generate_organize_plan(request: dict):
                     plan = json.loads(plan_str)
                 except json.JSONDecodeError:
                     brace_count = 0
-                    start_idx = plan_str.find('{')
                     end_idx = len(plan_str)
                     for i, c in enumerate(plan_str):
                         if c == '{':
@@ -899,7 +898,9 @@ async def generate_organize_plan(request: dict):
         return plan
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"服务器错误: {str(e)}"}
+    finally:
+        db.close()
 
 @app.post("/ai/organize/execute")
 async def execute_organize_plan(request: dict):
