@@ -98,8 +98,11 @@
 
             <div class="card">
                 <div class="card-title">扫描目录</div>
-                <div class="input-group">
-                    <input type="text" v-model="scanPath" placeholder="输入要扫描的目录路径，如 C:\Documents">
+                <div class="input-group" style="display:flex;gap:10px;">
+                    <input type="text" v-model="scanPath" list="scanHistoryList" placeholder="输入要扫描的目录路径，如 C:\Documents" style="flex:1;">
+                    <datalist id="scanHistoryList">
+                        <option v-for="path in scanHistory" :key="path" :value="path">
+                    </datalist>
                     <button class="btn btn-primary" @click="startScan" :disabled="scanning">
                         {{ scanning ? '扫描中...' : '开始扫描' }}
                     </button>
@@ -454,6 +457,7 @@
         createApp({
             setup() {
                 const scanPath = ref('');
+                const scanHistory = ref(JSON.parse(localStorage.getItem('scanHistory') || '[]'));
                 const scanning = ref(false);
                 const computing = ref(false);
                 const deduplicating = ref(false);
@@ -899,6 +903,12 @@
                         addLog('error', '扫描失败: ' + e.message);
                     } finally {
                         scanning.value = false;
+                        if (scanPath.value.trim()) {
+                            const history = scanHistory.value.filter(h => h !== scanPath.value);
+                            history.unshift(scanPath.value);
+                            scanHistory.value = history.slice(0, 10);
+                            localStorage.setItem('scanHistory', JSON.stringify(scanHistory.value));
+                        }
                         loadStats();
                         loadFiles();
                         loadSourceStats();
@@ -1307,7 +1317,7 @@
                 loadScanRecords();
 
                 return {
-                    scanPath, scanning, computing, deduplicating, renaming,
+                    scanPath, scanHistory, scanning, computing, deduplicating, renaming,
                     scanProgress, scanStatus, files, selectedFiles, archiveTypes, archiveSmart,
                     isPageAllSelected, updatePageAllState, togglePageAll,
                     searchKeyword, filterDuplicate, filterStatus, selectedExt,
