@@ -19,6 +19,7 @@ from scanner import (
 from archiver import deduplicate_files, rename_duplicates_by_date, get_unique_filename, archive_files_smart
 from ai_analyzer import analyze_files, ai_archive_files
 from ai_provider import get_ai_provider
+from ai_organizer import OrganizePromptBuilder, LearnedRule
 from auto_mode import auto_detect_mode
 from file_manager import (
     check_and_update_unavailable_files,
@@ -700,6 +701,192 @@ async def batch_restore_files(request: dict):
     db.commit()
     db.close()
     return {"restored_count": count}
+
+@app.get("/scan-record/{record_id}/files")
+async def get_scan_record_files(record_id: int):
+    """
+    获取指定扫描记录下的所有文件
+    """
+    db = SessionLocal()
+    files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    result = []
+    for f in files:
+        result.append({
+            "id": f.id,
+            "name": f.name,
+            "path": f.path,
+            "extension": f.extension,
+            "size": f.size,
+            "md5": f.md5,
+            "status": f.status
+        })
+    db.close()
+    return {"files": result}
+
+@app.post("/ai/organize/plan")
+async def generate_organize_plan(request: dict):
+    """
+    使用AI生成文件整理方案
+    """
+    record_id = request.get("record_id")
+    provider = request.get("provider", "ollama")
+    api_key = request.get("api_key")
+    model = request.get("model")
+    include_content = request.get("include_content", False)
+    learn_mode = request.get("learn_mode", True)
+
+    db = SessionLocal()
+
+    rule_storage_path = os.path.join(os.path.dirname(__file__), "learned_rules.json")
+    rule_learner = LearnedRule(rule_storage_path)
+    learned_rules = rule_learner.get_recent_rules(limit=10) if learn_mode else []
+
+    ai_provider = get_ai_provider(provider, api_key, model)
+
+    files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+
+    if not files:
+        db.close()
+        return {"error": "没有找到文件"}
+
+    file_data = []
+    for f in files:
+        fd = {
+            "id": f.id,
+            "name": f.name,
+            "path": f.path,
+            "extension": f.extension,
+            "size": f.size,
+            "md5": f.md5
+        }
+
+        if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
+            try:
+                with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
+                    fd['text_preview'] = fp.read()[:2000]
+            except:
+                pass
+
+        file_data.append(fd)
+
+    db.close()
+
+    prompt_builder = OrganizePromptBuilder(learned_rules)
+    system_prompt = prompt_builder.build_system_prompt()
+    user_prompt = prompt_builder.build_user_prompt(file_data, learned_rules, include_content)
+
+    try:
+        response = ai_provider.chat(system_prompt, user_prompt)
+
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            plan_str = json_match.group(0)
+            plan = json.loads(plan_str)
+
+            if learn_mode:
+                for folder in plan.get('folders', []):
+                    rule_learner.add_rule(
+                        pattern=folder.get('name', ''),
+                        action=f"移动到 {folder['name']}",
+                        file_count=len(folder.get('files', []))
+                    )
+
+            return plan
+        else:
+            return {"error": "AI返回格式错误", "raw": response[:500]}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/ai/organize/execute")
+async def execute_organize_plan(request: dict):
+    """
+    执行AI整理方案
+    """
+    record_id = request.get("record_id")
+    plan = request.get("plan", {})
+    target_dir = request.get("target_dir", "")
+
+    if not plan or not plan.get("folders"):
+        return {"success": False, "message": "无效的整理方案"}
+
+    db = SessionLocal()
+    scan_record = db.query(ScanRecord).filter(ScanRecord.id == record_id).first()
+
+    if not scan_record:
+        db.close()
+        return {"success": False, "message": "未找到扫描记录"}
+
+    if not target_dir:
+        target_dir = os.path.join(os.path.dirname(scan_record.scan_path), "AI整理")
+
+    os.makedirs(target_dir, exist_ok=True)
+    temp_dir = os.path.join(target_dir, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    results = []
+    file_ids_in_plan = set()
+
+    def get_file_ids_from_folder(folder):
+        ids = []
+        for f in folder.get('files', []):
+            if isinstance(f, dict) and 'id' in f:
+                ids.append(f['id'])
+                file_ids_in_plan.add(f['id'])
+        for sub in folder.get('subfolders', []):
+            ids.extend(get_file_ids_from_folder(sub))
+        return ids
+
+    for folder in plan.get('folders', []):
+        folder_path = os.path.join(target_dir, folder.get('name', '未分类'))
+        os.makedirs(folder_path, exist_ok=True)
+
+        for f in folder.get('files', []):
+            if isinstance(f, dict) and 'id' in f:
+                entry = db.query(FileEntry).filter(FileEntry.id == f['id']).first()
+                if entry and os.path.exists(entry.path):
+                    new_path = os.path.join(folder_path, entry.name)
+                    unique_path = os.path.join(folder_path, get_unique_filename(folder_path, entry.name))
+                    try:
+                        shutil.copy2(entry.path, unique_path)
+                        results.append(f"✓ {entry.name} → {folder.get('name', '')}")
+                        entry.path = unique_path
+                        entry.status = 'archived'
+                    except Exception as e:
+                        results.append(f"✗ {entry.name}: {str(e)}")
+
+        for sub in folder.get('subfolders', []):
+            sub_path = os.path.join(folder_path, sub.get('name', '子文件夹'))
+            os.makedirs(sub_path, exist_ok=True)
+
+            for f in sub.get('files', []):
+                if isinstance(f, dict) and 'id' in f:
+                    entry = db.query(FileEntry).filter(FileEntry.id == f['id']).first()
+                    if entry and os.path.exists(entry.path):
+                        new_path = os.path.join(sub_path, entry.name)
+                        unique_path = os.path.join(sub_path, get_unique_filename(sub_path, entry.name))
+                        try:
+                            shutil.copy2(entry.path, unique_path)
+                            results.append(f"✓ {entry.name} → {sub.get('name', '')}")
+                            entry.path = unique_path
+                            entry.status = 'archived'
+                        except Exception as e:
+                            results.append(f"✗ {entry.name}: {str(e)}")
+
+    db.commit()
+
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    archived_count = len([r for r in results if r.startswith('✓')])
+    db.close()
+
+    return {
+        "success": True,
+        "message": f"整理完成！已处理 {archived_count} 个文件",
+        "details": results
+    }
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):
