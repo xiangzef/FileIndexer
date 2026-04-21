@@ -175,7 +175,7 @@ class AIProvider:
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=data,
-                timeout=120
+                timeout=300
             )
 
             if response.status_code == 200:
@@ -198,7 +198,7 @@ class AIProvider:
         except requests.exceptions.ConnectionError:
             return f"错误: 无法连接到AI服务，请确保AI服务已启动"
         except requests.exceptions.Timeout:
-            return f"错误: AI服务响应超时，请重试"
+            return f"错误: AI服务响应超时(5分钟)，文件数量可能过多或网络较慢，建议减少文件数量重试"
         except Exception as e:
             return f"错误: {str(e)}"
 
