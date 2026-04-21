@@ -110,6 +110,19 @@
                             </div>
                         </div>
                         <div class="input-group" style="margin-bottom:10px;">
+                            <label style="font-size:12px;color:#666;">操作模式</label>
+                            <div style="display:flex;gap:5px;">
+                                <select v-model="archiveMode" style="padding:8px;border:1px solid #ddd;border-radius:6px;flex:1;">
+                                    <option value="copy">复制</option>
+                                    <option value="move">移动</option>
+                                </select>
+                                <select v-model="archiveSmart" style="padding:8px;border:1px solid #ddd;border-radius:6px;flex:1;">
+                                    <option :value="true">智能分类</option>
+                                    <option :value="false">原样复制</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-group" style="margin-bottom:10px;">
                             <label style="font-size:12px;color:#666;">AI提供商</label>
                             <select v-model="aiProvider" style="padding:8px;border:1px solid #ddd;border-radius:6px;width:100%;">
                                 <option value="ollama">Ollama (本地)</option>
@@ -295,6 +308,8 @@
                 const selectedTypes = ref([]);
                 const selectedFileIds = ref([]);
                 const targetDir = ref('');
+                const archiveMode = ref('copy');
+                const archiveSmart = ref(true);
 
                 const truncatePath = (path) => {
                     if (!path) return '';
@@ -476,7 +491,9 @@
                                 provider: aiProvider.value,
                                 api_key: aiApiKey.value,
                                 model: aiModel.value,
-                                target_dir: targetDir.value
+                                target_dir: targetDir.value,
+                                archive_mode: archiveMode.value,
+                                archive_smart: archiveSmart.value
                             })
                         });
 
@@ -508,7 +525,7 @@
                     loadingRecords, generating, progress, status,
                     planGenerated, plan, planEnabled,
                     executing, execProgress, execStatus, execResult,
-                    selectedTypes, selectedFileIds, targetDir,
+                    selectedTypes, selectedFileIds, targetDir, archiveMode, archiveSmart,
                     availableTypes, filteredFiles,
                     truncatePath, formatTime, formatSize, getTagClass, getTypeName,
                     toggleType, toggleFileSelection,

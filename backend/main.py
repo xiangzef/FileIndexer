@@ -884,6 +884,8 @@ async def execute_organize_plan(request: dict):
     record_id = request.get("record_id")
     plan = request.get("plan", {})
     target_dir = request.get("target_dir", "")
+    archive_mode = request.get("archive_mode", "copy")
+    archive_smart = request.get("archive_smart", True)
 
     if not plan or not plan.get("folders"):
         return {"success": False, "message": "无效的整理方案"}
@@ -915,21 +917,26 @@ async def execute_organize_plan(request: dict):
             ids.extend(get_file_ids_from_folder(sub))
         return ids
 
+    copy_func = shutil.move if archive_mode == "move" else shutil.copy2
+
     for folder in plan.get('folders', []):
-        folder_path = os.path.join(target_dir, folder.get('name', '未分类'))
+        if not archive_smart:
+            folder_path = target_dir
+        else:
+            folder_path = os.path.join(target_dir, folder.get('name', '未分类'))
         os.makedirs(folder_path, exist_ok=True)
 
         for f in folder.get('files', []):
             if isinstance(f, dict) and 'id' in f:
                 entry = db.query(FileEntry).filter(FileEntry.id == f['id']).first()
                 if entry and os.path.exists(entry.path):
-                    new_path = os.path.join(folder_path, entry.name)
                     unique_path = os.path.join(folder_path, get_unique_filename(folder_path, entry.name))
                     try:
-                        shutil.copy2(entry.path, unique_path)
+                        copy_func(entry.path, unique_path)
                         results.append(f"✓ {entry.name} → {folder.get('name', '')}")
-                        entry.path = unique_path
-                        entry.status = 'archived'
+                        if archive_mode == "move":
+                            entry.path = unique_path
+                            entry.status = 'archived'
                     except Exception as e:
                         results.append(f"✗ {entry.name}: {str(e)}")
 
@@ -941,13 +948,13 @@ async def execute_organize_plan(request: dict):
                 if isinstance(f, dict) and 'id' in f:
                     entry = db.query(FileEntry).filter(FileEntry.id == f['id']).first()
                     if entry and os.path.exists(entry.path):
-                        new_path = os.path.join(sub_path, entry.name)
                         unique_path = os.path.join(sub_path, get_unique_filename(sub_path, entry.name))
                         try:
-                            shutil.copy2(entry.path, unique_path)
+                            copy_func(entry.path, unique_path)
                             results.append(f"✓ {entry.name} → {sub.get('name', '')}")
-                            entry.path = unique_path
-                            entry.status = 'archived'
+                            if archive_mode == "move":
+                                entry.path = unique_path
+                                entry.status = 'archived'
                         except Exception as e:
                             results.append(f"✗ {entry.name}: {str(e)}")
 
