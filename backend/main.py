@@ -855,23 +855,48 @@ async def generate_organize_plan(request: dict):
     try:
         response = ai_provider.chat(system_prompt, user_prompt)
 
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            plan_str = json_match.group(0)
-            plan = json.loads(plan_str)
+        if response.startswith("错误:"):
+            return {"error": response}
 
-            if learn_mode:
-                for folder in plan.get('folders', []):
-                    rule_learner.add_rule(
-                        pattern=folder.get('name', ''),
-                        action=f"移动到 {folder['name']}",
-                        file_count=len(folder.get('files', []))
-                    )
+        import json
+        try:
+            plan = json.loads(response)
+        except json.JSONDecodeError:
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                plan_str = json_match.group(0)
+                try:
+                    plan = json.loads(plan_str)
+                except json.JSONDecodeError:
+                    brace_count = 0
+                    start_idx = plan_str.find('{')
+                    end_idx = len(plan_str)
+                    for i, c in enumerate(plan_str):
+                        if c == '{':
+                            brace_count += 1
+                        elif c == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end_idx = i + 1
+                                break
+                    plan_str = plan_str[:end_idx]
+                    try:
+                        plan = json.loads(plan_str)
+                    except json.JSONDecodeError:
+                        return {"error": f"AI返回格式错误: 无法解析JSON", "raw": response[:500]}
+            else:
+                return {"error": "AI返回格式错误: 未找到JSON", "raw": response[:500]}
 
-            return plan
-        else:
-            return {"error": "AI返回格式错误", "raw": response[:500]}
+        if learn_mode:
+            for folder in plan.get('folders', []):
+                rule_learner.add_rule(
+                    pattern=folder.get('name', ''),
+                    action=f"移动到 {folder['name']}",
+                    file_count=len(folder.get('files', []))
+                )
+
+        return plan
 
     except Exception as e:
         return {"error": str(e)}
