@@ -147,7 +147,7 @@
                         <div v-if="availableTypes.length > 0" style="margin-bottom:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                             <span style="font-size:12px;color:#666;">筛选类型:</span>
                             <button class="btn btn-sm" :class="selectedTypes.length === 0 ? 'btn-primary' : 'btn-secondary'" @click="selectedTypes = []">全部</button>
-                            <button v-for="type in availableTypes" :key="type" class="btn btn-sm" :class="selectedTypes.includes(type) ? 'btn-primary' : 'btn-secondary'" @click="toggleType(type)">{{ type }}</button>
+                            <button v-for="type in availableTypes" :key="type" class="btn btn-sm" :class="selectedTypes.includes(type) ? 'btn-primary' : 'btn-secondary'" @click="toggleType(type)">{{ getTypeName(type) }}</button>
                         </div>
                         <div class="file-grid">
                             <div v-for="file in filteredFiles.slice(0, 50)" :key="file.id" class="file-card" :class="{selected: selectedFileIds.includes(file.id)}" @click="toggleFileSelection(file.id)">
@@ -299,6 +299,20 @@
                     if (tag.includes('版本') || tag.includes('v') || tag.includes('V')) return 'tag-version';
                     if (tag.includes('相似') || tag.includes('副本')) return 'tag-similar';
                     return 'tag-type';
+                };
+
+                const typeNames = {
+                    '.doc': 'Word', '.docx': 'Word', '.wps': 'WPS',
+                    '.pdf': 'PDF',
+                    '.xls': 'Excel', '.xlsx': 'Excel', '.csv': 'CSV',
+                    '.jpg': '图片', '.jpeg': '图片', '.png': '图片', '.gif': '图片', '.bmp': '图片', '.tiff': '图片',
+                    '.txt': '文本', '.md': 'Markdown',
+                    '.ppt': 'PPT', '.pptx': 'PPT',
+                    '.zip': '压缩', '.rar': '压缩', '.7z': '压缩'
+                };
+
+                const getTypeName = (ext) => {
+                    return typeNames[ext.toLowerCase()] || ext;
                 };
 
                 const availableTypes = computed(() => {
@@ -465,7 +479,7 @@
                     executing, execProgress, execStatus, execResult,
                     selectedTypes, selectedFileIds,
                     availableTypes, filteredFiles,
-                    truncatePath, formatTime, formatSize, getTagClass,
+                    truncatePath, formatTime, formatSize, getTagClass, getTypeName,
                     toggleType, toggleFileSelection,
                     selectRecord, generatePlan, cancelPlan, executePlan, reset
                 };

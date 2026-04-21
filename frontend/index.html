@@ -492,12 +492,11 @@
                 const selectedTypes = ref([]);
                 const showTypeDropdown = ref(false);
                 const allTypes = [
-                    { value: 'doc', label: 'Word文档' },
-                    { value: 'pdf', label: 'PDF文档' },
-                    { value: 'xls', label: '表格文件' },
-                    { value: 'ppt', label: 'PPT幻灯片' },
-                    { value: 'img', label: '图片' },
-                    { value: 'txt', label: '文本文件' }
+                    { value: 'doc', label: 'Word文档(.doc/.docx/.wps)' },
+                    { value: 'pdf', label: 'PDF文档(.pdf)' },
+                    { value: 'xls', label: '表格文件(.xls/.xlsx/.csv)' },
+                    { value: 'img', label: '图片(.jpg/.png/.gif等)' },
+                    { value: 'txt', label: '文本文件(.txt/.md)' }
                 ];
 
                 function toggleTypeFilter(type) {
