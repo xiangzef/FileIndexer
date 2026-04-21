@@ -74,6 +74,7 @@
                     <a href="/ai-organize.html" class="nav-link">🤖 AI整理</a>
                 </nav>
             </header>
+            <input type="file" id="targetDirInput" webkitdirectory style="display:none;" onchange="handleTargetDirSelect(this)">
 
             <div class="split-view">
                 <div class="left-panel">
@@ -101,6 +102,13 @@
 
                     <div class="card" v-if="selectedRecord">
                         <div class="card-title">⚙️ AI设置</div>
+                        <div class="input-group" style="margin-bottom:10px;">
+                            <label style="font-size:12px;color:#666;">目标整理目录</label>
+                            <div style="display:flex;gap:5px;">
+                                <input type="text" v-model="targetDir" placeholder="输入目标目录路径" style="padding:8px;border:1px solid #ddd;border-radius:6px;flex:1;">
+                                <button class="btn btn-sm btn-secondary" onclick="selectTargetDir()" style="white-space:nowrap;">浏览</button>
+                            </div>
+                        </div>
                         <div class="input-group" style="margin-bottom:10px;">
                             <label style="font-size:12px;color:#666;">AI提供商</label>
                             <select v-model="aiProvider" style="padding:8px;border:1px solid #ddd;border-radius:6px;width:100%;">
@@ -247,6 +255,20 @@
     <script>
         const API_BASE = 'http://127.0.0.1:56789';
 
+        function selectTargetDir() {
+            document.getElementById('targetDirInput').click();
+        }
+
+        function handleTargetDirSelect(input) {
+            if (input.files.length > 0) {
+                const dir = input.files[0].webkitRelativePath.split('/')[0];
+                const app = document.querySelector('#app').__vue_app__._instance.proxy;
+                if (app && app.targetDir !== undefined) {
+                    app.targetDir = dir;
+                }
+            }
+        }
+
         const { createApp, ref, computed, onMounted } = Vue;
 
         createApp({
@@ -272,6 +294,7 @@
                 const execResult = ref(null);
                 const selectedTypes = ref([]);
                 const selectedFileIds = ref([]);
+                const targetDir = ref('');
 
                 const truncatePath = (path) => {
                     if (!path) return '';
@@ -382,6 +405,10 @@
 
                 const generatePlan = async () => {
                     if (!selectedRecord.value) return;
+                    if (!targetDir.value) {
+                        alert('请输入目标整理目录');
+                        return;
+                    }
 
                     generating.value = true;
                     planGenerated.value = false;
@@ -404,7 +431,8 @@
                                 api_key: aiApiKey.value,
                                 model: aiModel.value,
                                 include_content: includeContent.value,
-                                learn_mode: learnMode.value
+                                learn_mode: learnMode.value,
+                                target_dir: targetDir.value
                             })
                         });
 
@@ -447,7 +475,8 @@
                                 plan: plan.value,
                                 provider: aiProvider.value,
                                 api_key: aiApiKey.value,
-                                model: aiModel.value
+                                model: aiModel.value,
+                                target_dir: targetDir.value
                             })
                         });
 
@@ -479,7 +508,7 @@
                     loadingRecords, generating, progress, status,
                     planGenerated, plan, planEnabled,
                     executing, execProgress, execStatus, execResult,
-                    selectedTypes, selectedFileIds,
+                    selectedTypes, selectedFileIds, targetDir,
                     availableTypes, filteredFiles,
                     truncatePath, formatTime, formatSize, getTagClass, getTypeName,
                     toggleType, toggleFileSelection,

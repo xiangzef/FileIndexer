@@ -174,8 +174,18 @@ class AIProvider:
             if response.status_code == 200:
                 result = response.json()
                 return result["choices"][0]["message"]["content"].strip()
+            elif response.status_code >= 500:
+                return f"错误: AI服务内部错误 ({response.status_code})，请检查AI服务是否运行正常"
+            elif response.status_code == 401:
+                return f"错误: API认证失败，请检查API Key是否正确"
+            elif response.status_code == 400:
+                return f"错误: 请求参数错误 - {response.text[:200]}"
             else:
                 return f"错误: API返回 {response.status_code} - {response.text[:200]}"
+        except requests.exceptions.ConnectionError:
+            return f"错误: 无法连接到AI服务，请确保AI服务已启动"
+        except requests.exceptions.Timeout:
+            return f"错误: AI服务响应超时，请重试"
         except Exception as e:
             return f"错误: {str(e)}"
 
