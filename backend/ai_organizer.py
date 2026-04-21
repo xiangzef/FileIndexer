@@ -88,7 +88,8 @@ class OrganizePromptBuilder:
 - 每个文件只能出现在一个文件夹中
 - 子文件夹可以嵌套，但建议不超过3层
 - 文件夹命名要简洁、有意义
-- 务必分析所有文件，不要遗漏"""
+- 务必分析所有文件，不要遗漏
+- 如果文件数量超过30个，请优先按主题/项目分类，次要文件按类型分类"""
 
     def build_user_prompt(self, files: List[Dict], learned_rules: List[Dict] = None, include_content: bool = False) -> str:
         rules_text = ""

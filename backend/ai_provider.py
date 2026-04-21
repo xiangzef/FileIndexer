@@ -7,37 +7,44 @@ PROVIDER_CONFIGS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
         "default_model": "llama3",
-        "supports_stream": True
+        "supports_stream": True,
+        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "codellama", "qwen2.5", "phi3", "gemma2"]
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "default_model": "glm-4-flash",
-        "supports_stream": False
+        "supports_stream": False,
+        "models": ["glm-4", "glm-4-flash", "glm-4-plus", "glm-4v", "glm-4v-plus", "cogview-3"]
     },
     "qwen": {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "default_model": "qwen-turbo",
-        "supports_stream": False
+        "supports_stream": False,
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max", "qwen-max-long", "qwen2.5-7b-instruct", "qwen2.5-14b-instruct", "qwen2.5-32b-instruct", "qwen2.5-72b-instruct", "qwen2.5-coder-7b-instruct", "qwen2.5-coder-32b-instruct"]
     },
     "wenxin": {
         "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1",
-        "default_model": "ernie-speed",
-        "supports_stream": False
+        "default_model": "ernie-speed-128k",
+        "supports_stream": False,
+        "models": ["ernie-speed-128k", "ernie-speed-pro-128k", "ernie-lite-pro-8k", "ernie-lite-8k", "ernie-mini", "ernie-turbo-pro-128k", "ernie-turbo-8k"]
     },
     "minimax": {
         "base_url": "https://api.minimax.chat/v1",
-        "default_model": "abab6-chat",
-        "supports_stream": False
+        "default_model": "abab6.5s-chat",
+        "supports_stream": False,
+        "models": ["abab6.5s-chat", "abab6.5-chat", "abab5.5s-chat", "abab5.5-chat", "abab6-chat", "speech-01"]
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
         "default_model": "moonshot-v1-8k",
-        "supports_stream": False
+        "supports_stream": False,
+        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "moonshot-v1-4k"]
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
         "default_model": "deepseek-chat",
-        "supports_stream": True
+        "supports_stream": True,
+        "models": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"]
     }
 }
 

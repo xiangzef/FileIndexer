@@ -72,6 +72,16 @@ async def get_supported_extensions():
         "all": list(ALL_SUPPORTED)
     }
 
+@app.get("/ai/models")
+async def get_ai_models(provider: str = "ollama"):
+    from ai_provider import PROVIDER_CONFIGS
+    config = PROVIDER_CONFIGS.get(provider, {})
+    return {
+        "provider": provider,
+        "default_model": config.get("default_model", ""),
+        "models": config.get("models", [])
+    }
+
 @app.post("/scan")
 async def scan_paths(request: Request):
     """
@@ -835,6 +845,10 @@ async def generate_organize_plan(request: dict):
 
         if not files:
             return {"error": "没有找到文件"}
+
+        MAX_FILES_FOR_AI = 300
+        if len(files) > MAX_FILES_FOR_AI:
+            files = files[:MAX_FILES_FOR_AI]
 
         file_data = []
         for f in files:
