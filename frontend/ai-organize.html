@@ -294,7 +294,7 @@
                 const previewFiles = ref([]);
                 const aiProvider = ref(localStorage.getItem('aiProvider') || 'ollama');
                 const aiApiKey = ref(localStorage.getItem('aiApiKey') || '');
-                const aiModel = ref(localStorage.getItem('aiModel') || '');
+                const aiModel = ref('');
                 const includeContent = ref(false);
                 const learnMode = ref(true);
                 const loadingRecords = ref(false);
@@ -322,25 +322,11 @@
                     kimi: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "moonshot-v1-4k"],
                     deepseek: ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"]
                 };
-                const availableModels = ref([...DEFAULT_MODELS.ollama]);
+                const availableModels = ref([]);
 
-                const loadModels = async () => {
-                    try {
-                        const res = await fetch(`${API_BASE}/ai/models?provider=${aiProvider.value}`);
-                        const data = await res.json();
-                        if (data.models && data.models.length > 0) {
-                            availableModels.value = data.models;
-                            console.log('模型列表已加载:', data.models);
-                        } else {
-                            availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
-                        }
-                        if (data.default_model && !aiModel.value) {
-                            aiModel.value = data.default_model;
-                        }
-                    } catch (e) {
-                        console.error('加载模型列表失败:', e);
-                        availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
-                    }
+                const loadModels = () => {
+                    availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
+                    aiModel.value = availableModels.value[0] || '';
                 };
 
                 watch(() => aiProvider.value, (newProvider) => {
