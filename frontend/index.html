@@ -187,10 +187,10 @@
                             <span style="font-size:10px;">▼</span>
                         </button>
                         <div v-if="showTypeDropdown" class="dropdown-panel" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:8px;z-index:100;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-                            <label style="display:block;padding:4px 6px;cursor:pointer;font-size:13px;">
+                            <label style="display:flex;align-items:center;padding:4px 6px;cursor:pointer;font-size:13px;gap:6px;">
                                 <input type="checkbox" :checked="selectedTypes.length === 0" @change="selectedTypes = []"> 全部
                             </label>
-                            <label v-for="t in allTypes" :key="t.value" style="display:block;padding:4px 6px;cursor:pointer;font-size:13px;">
+                            <label v-for="t in allTypes" :key="t.value" style="display:flex;align-items:center;padding:4px 6px;cursor:pointer;font-size:13px;gap:6px;">
                                 <input type="checkbox" :checked="selectedTypes.includes(t.value)" @change="toggleTypeFilter(t.value)"> {{ t.label }}
                             </label>
                         </div>
