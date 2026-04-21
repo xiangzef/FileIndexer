@@ -186,10 +186,10 @@
                             {{ selectedTypes.length === 0 ? '全部类型' : '已选' + selectedTypes.length + '类' }}
                             <span style="font-size:10px;">▼</span>
                         </button>
-                        <div v-if="showTypeDropdown" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:10px;z-index:100;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-                            <div v-for="t in allTypes" :key="t.value" style="display:flex;align-items:center;padding:6px 4px;cursor:pointer;border-bottom:1px solid #eee;" @click="toggleTypeFilter(t.value)">
-                                <input type="checkbox" :checked="selectedTypes.includes(t.value)" style="width:16px;height:16px;margin-right:10px;">
-                                <span style="font-size:14px;">{{ t.label }}</span>
+                        <div v-if="showTypeDropdown" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:10px;z-index:100;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                            <div v-for="t in allTypes" :key="t.value" @click="toggleTypeFilter(t.value)" style="display:flex;align-items:center;padding:5px 0;cursor:pointer;">
+                                <span style="flex:1;font-size:13px;">{{ t.label }}</span>
+                                <input type="checkbox" :checked="selectedTypes.includes(t.value)" style="width:14px;height:14px;">
                             </div>
                         </div>
                     </div>
