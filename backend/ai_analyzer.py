@@ -302,7 +302,13 @@ def analyze_files(db: Session, file_ids: List[int], ai_provider=None) -> Dict[st
     分析指定文件
     """
     analyzer = AIAnalyzer(ai_provider)
-    entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+
+    batch_size = 500
+    entries = []
+    for i in range(0, len(file_ids), batch_size):
+        batch = file_ids[i:i + batch_size]
+        batch_entries = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+        entries.extend(batch_entries)
 
     if not entries:
         return {"error": "没有选择文件"}
@@ -336,7 +342,12 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
     """
     使用AI按文件类型分类归档文件
     """
-    entries = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+    batch_size = 500
+    entries = []
+    for i in range(0, len(file_ids), batch_size):
+        batch = file_ids[i:i + batch_size]
+        batch_entries = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+        entries.extend(batch_entries)
 
     if not entries:
         return [{"error": "没有选择文件"}]
