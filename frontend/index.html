@@ -181,6 +181,16 @@
                         <option value="suspended">已挂起</option>
                         <option value="unavailable">不可用</option>
                     </select>
+                    <select v-model="filterType" @change="loadFiles" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
+                        <option :value="null">全部类型</option>
+                        <option value="doc">Word文档</option>
+                        <option value="pdf">PDF文档</option>
+                        <option value="xls">表格文件</option>
+                        <option value="ppt">PPT幻灯片</option>
+                        <option value="img">图片</option>
+                        <option value="txt">文本文件</option>
+                        <option value="other">其他</option>
+                    </select>
                 </div>
 
                 <div v-if="logs.length > 0" class="log" style="margin-bottom:15px;">
@@ -292,36 +302,6 @@
                         <span class="tag" :class="{active: archiveTypes.includes('.ppt') || archiveTypes.includes('.pptx')}" @click="toggleArchiveType('.ppt')">PPT幻灯片</span>
                         <span class="tag" :class="{active: archiveTypes.includes('.jpg') || archiveTypes.includes('.png') || archiveTypes.includes('.gif')}" @click="toggleArchiveType('.jpg')">图片</span>
                     </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">扫描记录</div>
-                <div v-if="scanRecords.length > 0" style="margin-bottom:15px;">
-                    <div v-for="record in scanRecords" :key="record.id" style="padding:12px;background:#f8f9fa;border-radius:8px;margin-bottom:10px;">
-                        <div class="flex-between">
-                            <div style="flex:1;">
-                                <div style="font-weight:500;">{{ record.scan_path }}</div>
-                                <div style="font-size:12px;color:#666;margin-top:4px;">
-                                    {{ record.total_files }} 个文件 | {{ formatSize(record.total_size) }} |
-                                    扫描时间: {{ formatDate(record.scan_time) }}
-                                </div>
-                                <div style="margin-top:6px;" v-if="record.stats">
-                                    <span v-for="(info, ext) in record.stats" :key="ext" style="margin-right:10px;font-size:12px;">
-                                        <span style="background:#e9ecef;padding:2px 6px;border-radius:4px;">{{ ext }}: {{ info.count }}个</span>
-                                    </span>
-                                </div>
-                            </div>
-                            <div style="display:flex;gap:5px;margin-left:15px;">
-                                <button class="btn btn-secondary btn-sm" @click="suspendRecord(record.id)" title="挂起">挂起</button>
-                                <button class="btn btn-secondary btn-sm" @click="restoreRecord(record.id)" title="恢复">恢复</button>
-                                <button class="btn btn-danger btn-sm" @click="deleteRecord(record.id)" title="删除">删除</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div v-else style="color:#999;text-align:center;padding:20px;">
-                    暂无扫描记录
                 </div>
             </div>
 
@@ -504,6 +484,7 @@
                 const aiArchiving = ref(false);
                 const scanRecords = ref([]);
                 const filterStatus = ref(null);
+                const filterType = ref(null);
 
                 const isPageAllSelected = computed(() => files.value.length > 0 && files.value.every(f => selectedFiles.value.includes(f.id)));
                 const totalPages = computed(() => Math.ceil(totalFiles.value / pageSize.value));
@@ -942,6 +923,7 @@
                     if (filterDuplicate.value !== null) params.append('is_duplicate', filterDuplicate.value);
                     if (selectedExt.value) params.append('extension', selectedExt.value);
                     if (filterStatus.value) params.append('status', filterStatus.value);
+                    if (filterType.value) params.append('file_type', filterType.value);
 
                     try {
                         const res = await fetch('/files?' + params);

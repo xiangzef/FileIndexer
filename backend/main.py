@@ -194,7 +194,8 @@ async def get_files(
     extension: str = None,
     is_duplicate: bool = None,
     keyword: str = None,
-    status: str = None
+    status: str = None,
+    file_type: str = None
 ):
     db = SessionLocal()
     query = db.query(FileEntry)
@@ -207,6 +208,18 @@ async def get_files(
         query = query.filter(FileEntry.name.contains(keyword))
     if status:
         query = query.filter(FileEntry.status == status)
+    if file_type:
+        type_map = {
+            'doc': ['.doc', '.docx'],
+            'pdf': ['.pdf'],
+            'xls': ['.csv', '.xls', '.xlsx', '.els', '.elsx'],
+            'ppt': ['.ppt', '.pptx'],
+            'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
+            'txt': ['.txt', '.md', '.log']
+        }
+        exts = type_map.get(file_type, [])
+        if exts:
+            query = query.filter(FileEntry.extension.in_(exts))
 
     total = query.count()
     items = query.order_by(FileEntry.id.desc()).offset((page-1)*page_size).limit(page_size).all()
