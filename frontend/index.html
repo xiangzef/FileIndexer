@@ -182,14 +182,15 @@
                         <option value="unavailable">不可用</option>
                     </select>
                     <div class="checkbox-dropdown" style="position:relative;">
-                        <button class="btn btn-secondary" @click="showTypeDropdown = !showTypeDropdown" style="min-width:120px;">
+                        <button class="btn btn-secondary" @click="showTypeDropdown = !showTypeDropdown" style="min-width:120px;display:flex;align-items:center;gap:5px;">
                             {{ selectedTypes.length === 0 ? '全部类型' : '已选' + selectedTypes.length + '类' }}
+                            <span style="font-size:10px;">▼</span>
                         </button>
-                        <div v-if="showTypeDropdown" class="dropdown-panel" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:10px;z-index:100;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-                            <label style="display:block;padding:6px 8px;cursor:pointer;">
+                        <div v-if="showTypeDropdown" class="dropdown-panel" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:8px;z-index:100;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                            <label style="display:block;padding:4px 6px;cursor:pointer;font-size:13px;">
                                 <input type="checkbox" :checked="selectedTypes.length === 0" @change="selectedTypes = []"> 全部
                             </label>
-                            <label v-for="t in allTypes" :key="t.value" style="display:block;padding:6px 8px;cursor:pointer;">
+                            <label v-for="t in allTypes" :key="t.value" style="display:block;padding:4px 6px;cursor:pointer;font-size:13px;">
                                 <input type="checkbox" :checked="selectedTypes.includes(t.value)" @change="toggleTypeFilter(t.value)"> {{ t.label }}
                             </label>
                         </div>
