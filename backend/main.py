@@ -99,6 +99,9 @@ async def scan_paths(request: Request):
                 continue
 
             for result in scan_directory(db, directory, progress_callback=on_progress):
+                if stop_event.is_set():
+                    yield _send_sse({"type": "stopped", "directory": directory})
+                    break
                 if result["type"] == "progress":
                     yield _send_sse(result)
                 elif result["type"] == "complete":
@@ -106,6 +109,9 @@ async def scan_paths(request: Request):
                     yield _send_sse(result)
                 elif result["type"] == "error":
                     yield _send_sse(result)
+                elif result["type"] == "stopped":
+                    yield _send_sse(result)
+                    break
 
         yield _send_sse({
             "type": "done",

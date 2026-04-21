@@ -892,6 +892,9 @@
                                             addLog('success', `扫描完成: ${data.directory}`);
                                         } else if (data.type === 'error') {
                                             addLog('error', `错误: ${data.message}`);
+                                        } else if (data.type === 'stopped') {
+                                            addLog('warning', '扫描已停止');
+                                            scanning.value = false;
                                         } else if (data.type === 'done') {
                                             addLog('success', `全部完成，共扫描 ${data.total_scanned} 个文件`);
                                         }

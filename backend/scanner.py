@@ -97,13 +97,21 @@ def scan_directory(
         stat = None
         last_error = None
         for attempt in range(10):
+            if SCAN_STOP_FLAG.is_set():
+                scan_record.status = 'stopped'
+                scan_record.total_files = scanned_count
+                scan_record.total_size = scanned_size
+                scan_record.stats_json = json.dumps(stats)
+                db.commit()
+                yield {"type": "stopped", "directory": directory}
+                return
             try:
                 stat = os.stat(file_path)
                 break
             except OSError as e:
                 last_error = e
                 if hasattr(e, 'winerror') and e.winerror in (234, 32):
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                     continue
                 break
         if stat is None:
