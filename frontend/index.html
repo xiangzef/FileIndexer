@@ -452,10 +452,12 @@
     </div>
 
     <script>
+        console.log('Vue version:', Vue.version);
         const { createApp, ref, computed, watch } = Vue;
 
         createApp({
             setup() {
+                console.log('Vue setup running...');
                 const scanPath = ref('');
                 const scanning = ref(false);
                 const computing = ref(false);
@@ -1334,8 +1336,10 @@
                     getProviderTip, getModelTip, startAiAnalyze, startAiArchive,
                     debounceSearch, formatSize, formatDate
                 };
+                console.log('Vue app mounted successfully');
             }
         }).mount('#app');
+        console.log('Vue mount called');
     </script>
 </body>
 </html>
