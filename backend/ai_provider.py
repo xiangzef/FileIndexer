@@ -186,7 +186,13 @@ class AIProvider:
             elif response.status_code == 401:
                 return f"错误: API认证失败，请检查API Key是否正确"
             elif response.status_code == 400:
-                return f"错误: 请求参数错误 - {response.text[:200]}"
+                import json
+                try:
+                    err_data = json.loads(response.text)
+                    err_msg = err_data.get("error", {}).get("message", response.text[:200])
+                    return f"错误: 模型不存在或无访问权限，请检查模型名称是否正确。当前模型: {self.model}"
+                except:
+                    return f"错误: 请求参数错误 - {response.text[:200]}"
             else:
                 return f"错误: API返回 {response.status_code} - {response.text[:200]}"
         except requests.exceptions.ConnectionError:
