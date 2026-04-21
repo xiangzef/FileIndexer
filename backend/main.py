@@ -822,7 +822,14 @@ async def generate_organize_plan(request: dict):
         ai_provider = get_ai_provider(provider, api_key, model)
 
         if file_ids:
-            files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+            if len(file_ids) > 500:
+                files = []
+                for i in range(0, len(file_ids), 500):
+                    batch = file_ids[i:i+500]
+                    batch_files = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+                    files.extend(batch_files)
+            else:
+                files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
         else:
             files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
 
