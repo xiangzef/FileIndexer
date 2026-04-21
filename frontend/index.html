@@ -168,8 +168,8 @@
                     </div>
                 </div>
 
-                <div class="input-group">
-                    <input type="text" v-model="searchKeyword" placeholder="搜索文件名..." @input="debounceSearch">
+                <div class="input-group" style="flex-wrap:wrap;gap:10px;">
+                    <input type="text" v-model="searchKeyword" placeholder="搜索文件名..." @input="debounceSearch" style="flex:1;min-width:200px;">
                     <select v-model="filterDuplicate" @change="loadFiles" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
                         <option :value="null">全部</option>
                         <option :value="true">仅重复</option>
@@ -181,16 +181,19 @@
                         <option value="suspended">已挂起</option>
                         <option value="unavailable">不可用</option>
                     </select>
-                    <select v-model="filterType" @change="loadFiles" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
-                        <option :value="null">全部类型</option>
-                        <option value="doc">Word文档</option>
-                        <option value="pdf">PDF文档</option>
-                        <option value="xls">表格文件</option>
-                        <option value="ppt">PPT幻灯片</option>
-                        <option value="img">图片</option>
-                        <option value="txt">文本文件</option>
-                        <option value="other">其他</option>
-                    </select>
+                    <div class="checkbox-dropdown" style="position:relative;">
+                        <button class="btn btn-secondary" @click="showTypeDropdown = !showTypeDropdown" style="min-width:120px;">
+                            {{ selectedTypes.length === 0 ? '全部类型' : '已选' + selectedTypes.length + '类' }}
+                        </button>
+                        <div v-if="showTypeDropdown" class="dropdown-panel" style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:8px;padding:10px;z-index:100;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                            <label style="display:block;padding:6px 8px;cursor:pointer;">
+                                <input type="checkbox" :checked="selectedTypes.length === 0" @change="selectedTypes = []"> 全部
+                            </label>
+                            <label v-for="t in allTypes" :key="t.value" style="display:block;padding:6px 8px;cursor:pointer;">
+                                <input type="checkbox" :checked="selectedTypes.includes(t.value)" @change="toggleTypeFilter(t.value)"> {{ t.label }}
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <div v-if="logs.length > 0" class="log" style="margin-bottom:15px;">
@@ -485,6 +488,26 @@
                 const scanRecords = ref([]);
                 const filterStatus = ref(null);
                 const filterType = ref(null);
+                const selectedTypes = ref([]);
+                const showTypeDropdown = ref(false);
+                const allTypes = [
+                    { value: 'doc', label: 'Word文档' },
+                    { value: 'pdf', label: 'PDF文档' },
+                    { value: 'xls', label: '表格文件' },
+                    { value: 'ppt', label: 'PPT幻灯片' },
+                    { value: 'img', label: '图片' },
+                    { value: 'txt', label: '文本文件' }
+                ];
+
+                function toggleTypeFilter(type) {
+                    const idx = selectedTypes.value.indexOf(type);
+                    if (idx >= 0) {
+                        selectedTypes.value.splice(idx, 1);
+                    } else {
+                        selectedTypes.value.push(type);
+                    }
+                    loadFiles();
+                }
 
                 const isPageAllSelected = computed(() => files.value.length > 0 && files.value.every(f => selectedFiles.value.includes(f.id)));
                 const totalPages = computed(() => Math.ceil(totalFiles.value / pageSize.value));
@@ -923,7 +946,9 @@
                     if (filterDuplicate.value !== null) params.append('is_duplicate', filterDuplicate.value);
                     if (selectedExt.value) params.append('extension', selectedExt.value);
                     if (filterStatus.value) params.append('status', filterStatus.value);
-                    if (filterType.value) params.append('file_type', filterType.value);
+                    if (selectedTypes.value.length > 0) {
+                        params.append('file_types', JSON.stringify(selectedTypes.value));
+                    }
 
                     try {
                         const res = await fetch('/files?' + params);
