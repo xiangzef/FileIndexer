@@ -143,10 +143,18 @@
                     </div>
 
                     <div class="card" v-else-if="!planGenerated && !generating">
-                        <div class="card-title">📄 已选择: {{ selectedRecord.total_files }} 个文件</div>
+                        <div class="card-title">📄 已选择: {{ selectedRecord.total_files }} 个文件 | 已筛选: {{ filteredFiles.length }} 个</div>
+                        <div v-if="availableTypes.length > 0" style="margin-bottom:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                            <span style="font-size:12px;color:#666;">筛选类型:</span>
+                            <button class="btn btn-sm" :class="selectedTypes.length === 0 ? 'btn-primary' : 'btn-secondary'" @click="selectedTypes = []">全部</button>
+                            <button v-for="type in availableTypes" :key="type" class="btn btn-sm" :class="selectedTypes.includes(type) ? 'btn-primary' : 'btn-secondary'" @click="toggleType(type)">{{ type }}</button>
+                        </div>
                         <div class="file-grid">
-                            <div v-for="file in previewFiles.slice(0, 50)" :key="file.id" class="file-card">
-                                <div class="file-name">{{ file.name }}</div>
+                            <div v-for="file in filteredFiles.slice(0, 50)" :key="file.id" class="file-card" :class="{selected: selectedFileIds.includes(file.id)}" @click="toggleFileSelection(file.id)">
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                    <input type="checkbox" :checked="selectedFileIds.includes(file.id)" @click.stop @change="toggleFileSelection(file.id)" style="width:16px;height:16px;">
+                                    <div class="file-name" style="flex:1;">{{ file.name }}</div>
+                                </div>
                                 <div class="file-meta">
                                     {{ file.extension }} | {{ formatSize(file.size) }}
                                 </div>
@@ -154,9 +162,14 @@
                                     <span v-if="file.ai_tag" class="file-tag" :class="getTagClass(file.ai_tag)">{{ file.ai_tag }}</span>
                                 </div>
                             </div>
-                            <div v-if="previewFiles.length > 50" style="color:#888;text-align:center;padding:20px;">
-                                还有 {{ previewFiles.length - 50 }} 个文件...
+                            <div v-if="filteredFiles.length > 50" style="color:#888;text-align:center;padding:20px;">
+                                还有 {{ filteredFiles.length - 50 }} 个文件...
                             </div>
+                        </div>
+                        <div style="margin-top:15px;display:flex;gap:10px;align-items:center;">
+                            <span style="font-size:13px;color:#666;">已选择 {{ selectedFileIds.length }} 个文件</span>
+                            <button class="btn btn-sm btn-secondary" @click="selectedFileIds = []">清空</button>
+                            <button class="btn btn-sm btn-primary" @click="selectedFileIds = filteredFiles.map(f=>f.id)" :disabled="filteredFiles.length === 0">全选当前</button>
                         </div>
                     </div>
 
@@ -257,6 +270,8 @@
                 const execProgress = ref(0);
                 const execStatus = ref('');
                 const execResult = ref(null);
+                const selectedTypes = ref([]);
+                const selectedFileIds = ref([]);
 
                 const truncatePath = (path) => {
                     if (!path) return '';
@@ -284,6 +299,39 @@
                     if (tag.includes('版本') || tag.includes('v') || tag.includes('V')) return 'tag-version';
                     if (tag.includes('相似') || tag.includes('副本')) return 'tag-similar';
                     return 'tag-type';
+                };
+
+                const availableTypes = computed(() => {
+                    const types = new Set();
+                    previewFiles.value.forEach(f => {
+                        if (f.extension) types.add(f.extension.toLowerCase());
+                    });
+                    return Array.from(types).sort();
+                });
+
+                const filteredFiles = computed(() => {
+                    if (selectedTypes.value.length === 0) return previewFiles.value;
+                    return previewFiles.value.filter(f =>
+                        selectedTypes.value.includes(f.extension.toLowerCase())
+                    );
+                });
+
+                const toggleType = (type) => {
+                    const idx = selectedTypes.value.indexOf(type);
+                    if (idx >= 0) {
+                        selectedTypes.value.splice(idx, 1);
+                    } else {
+                        selectedTypes.value.push(type);
+                    }
+                };
+
+                const toggleFileSelection = (id) => {
+                    const idx = selectedFileIds.value.indexOf(id);
+                    if (idx >= 0) {
+                        selectedFileIds.value.splice(idx, 1);
+                    } else {
+                        selectedFileIds.value.push(id);
+                    }
                 };
 
                 const loadRecords = async () => {
@@ -328,11 +376,14 @@
                         status.value = '正在分析文件关系...';
                         progress.value = 20;
 
+                        const fileIds = selectedFileIds.value.length > 0 ? selectedFileIds.value : null;
+
                         const res = await fetch(`${API_BASE}/ai/organize/plan`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 record_id: selectedRecord.value.id,
+                                file_ids: fileIds,
                                 provider: aiProvider.value,
                                 api_key: aiApiKey.value,
                                 model: aiModel.value,
@@ -412,7 +463,10 @@
                     loadingRecords, generating, progress, status,
                     planGenerated, plan, planEnabled,
                     executing, execProgress, execStatus, execResult,
+                    selectedTypes, selectedFileIds,
+                    availableTypes, filteredFiles,
                     truncatePath, formatTime, formatSize, getTagClass,
+                    toggleType, toggleFileSelection,
                     selectRecord, generatePlan, cancelPlan, executePlan, reset
                 };
             }

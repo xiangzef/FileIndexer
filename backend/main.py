@@ -729,6 +729,7 @@ async def generate_organize_plan(request: dict):
     使用AI生成文件整理方案
     """
     record_id = request.get("record_id")
+    file_ids = request.get("file_ids")
     provider = request.get("provider", "ollama")
     api_key = request.get("api_key")
     model = request.get("model")
@@ -743,7 +744,10 @@ async def generate_organize_plan(request: dict):
 
     ai_provider = get_ai_provider(provider, api_key, model)
 
-    files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    if file_ids:
+        files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+    else:
+        files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
 
     if not files:
         db.close()

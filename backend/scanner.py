@@ -96,14 +96,14 @@ def scan_directory(
 
         stat = None
         last_error = None
-        for attempt in range(3):
+        for attempt in range(10):
             try:
                 stat = os.stat(file_path)
                 break
             except OSError as e:
                 last_error = e
-                if hasattr(e, 'winerror') and e.winerror == 234:
-                    time.sleep(0.1)
+                if hasattr(e, 'winerror') and e.winerror in (234, 32):
+                    time.sleep(0.2)
                     continue
                 break
         if stat is None:
