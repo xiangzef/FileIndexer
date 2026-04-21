@@ -452,8 +452,10 @@
     </div>
 
     <script>
-        console.log('Vue version:', Vue.version);
+        console.log('1. Vue exists:', typeof Vue !== 'undefined', 'version:', Vue.version);
         const { createApp, ref, computed, watch } = Vue;
+        console.log('2. Vue destructured');
+        console.log('3. About to createApp');
 
         createApp({
             setup() {
