@@ -9,8 +9,8 @@ from typing import List, Optional, Generator, Dict, Any
 from sqlalchemy.orm import Session
 from database import FileEntry, ScanRecord
 
-DOC_EXTENSIONS = {'.doc', '.docx'}
-CSV_EXTENSIONS = {'.csv', '.els', '.elsx'}
+DOC_EXTENSIONS = {'.doc', '.docx', '.wps', '.wpt'}
+CSV_EXTENSIONS = {'.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'}
 PDF_EXTENSIONS = {'.pdf'}
 ALL_SUPPORTED = DOC_EXTENSIONS | CSV_EXTENSIONS | IMAGE_EXTENSIONS | PDF_EXTENSIONS
