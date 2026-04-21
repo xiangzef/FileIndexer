@@ -147,7 +147,7 @@
                         <div v-if="availableTypes.length > 0" style="margin-bottom:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                             <span style="font-size:12px;color:#666;">筛选类型:</span>
                             <button class="btn btn-sm" :class="selectedTypes.length === 0 ? 'btn-primary' : 'btn-secondary'" @click="selectedTypes = []">全部</button>
-                            <button v-for="type in availableTypes" :key="type" class="btn btn-sm" :class="selectedTypes.includes(type) ? 'btn-primary' : 'btn-secondary'" @click="toggleType(type)">{{ getTypeName(type) }}</button>
+                            <button v-for="type in availableTypes" :key="type" class="btn btn-sm" :class="selectedTypes.includes(type) ? 'btn-primary' : 'btn-secondary'" @click="toggleType(type)">{{ type }}</button>
                         </div>
                         <div class="file-grid">
                             <div v-for="file in filteredFiles.slice(0, 50)" :key="file.id" class="file-card" :class="{selected: selectedFileIds.includes(file.id)}" @click="toggleFileSelection(file.id)">
