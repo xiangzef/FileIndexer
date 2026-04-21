@@ -752,6 +752,7 @@
                     if (filterDuplicate.value !== null) params.append('is_duplicate', filterDuplicate.value);
                     if (selectedExt.value) params.append('extension', selectedExt.value);
                     if (filterStatus.value) params.append('status', filterStatus.value);
+                    if (selectedTypes.value.length > 0) params.append('file_types', JSON.stringify(selectedTypes.value));
                     try {
                         const res = await fetch('/files/all-ids?' + params);
                         const data = await res.json();
