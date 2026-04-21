@@ -96,7 +96,9 @@ def scan_directory(
 
         stat = None
         last_error = None
-        for attempt in range(10):
+        retry_count = 0
+        max_retries = 50
+        for attempt in range(max_retries):
             if SCAN_STOP_FLAG.is_set():
                 scan_record.status = 'stopped'
                 scan_record.total_files = scanned_count
@@ -111,11 +113,11 @@ def scan_directory(
             except OSError as e:
                 last_error = e
                 if hasattr(e, 'winerror') and e.winerror in (234, 32):
-                    time.sleep(0.1)
+                    retry_count += 1
+                    time.sleep(0.2 * retry_count)
                     continue
                 break
         if stat is None:
-            yield {"type": "error", "file": file_path, "message": f"无法访问: {last_error}"}
             continue
 
         ext = os.path.splitext(file_path)[1].lower()
