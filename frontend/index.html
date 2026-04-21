@@ -321,11 +321,13 @@
                     暂无扫描记录
                 </div>
             </div>
+        </div>
+        </div>
 
         <div v-if="showAIModal" class="modal-overlay" @click.self="showAIModal = false">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>🤖 AI 分析与归档</h3>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🤖 AI 分析与归档</h3>
                 <button class="modal-close" @click="showAIModal = false">&times;</button>
             </div>
             <div class="modal-body">
@@ -402,12 +404,12 @@
     </div>
 
     <div v-if="showSourceModal" class="modal-overlay" @click.self="showSourceModal = false">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>📁 来源管理</h3>
-                <button class="modal-close" @click="showSourceModal = false">&times;</button>
-            </div>
-            <div class="modal-body">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📁 来源管理</h3>
+                    <button class="modal-close" @click="showSourceModal = false">&times;</button>
+                </div>
+                <div class="modal-body">
                 <div style="margin-bottom:15px;">
                     <button class="btn btn-secondary" @click="checkUnavailable" :disabled="checkingUnavailable">
                         {{ checkingUnavailable ? '检测中...' : '检测不可用文件' }}
