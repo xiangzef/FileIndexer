@@ -27,6 +27,10 @@ def set_stop_check(callback):
             SCAN_STOP_FLAG.set()
     return check
 
+def clear_stop_flag():
+    global SCAN_STOP_FLAG
+    SCAN_STOP_FLAG.clear()
+
 def calculate_md5(file_path: str, chunk_size: int = 8192) -> Optional[str]:
     try:
         md5_hash = hashlib.md5()
@@ -64,6 +68,7 @@ def scan_directory(
     db.commit()
 
     all_files = []
+    file_count = 0
     for root, dirs, files in os.walk(directory):
         if SCAN_STOP_FLAG.is_set():
             scan_record.status = 'stopped'
@@ -76,6 +81,10 @@ def scan_directory(
             if ext in extensions:
                 full_path = os.path.join(root, filename)
                 all_files.append(full_path)
+        
+        file_count += len(files)
+        if file_count % 500 == 0:
+            yield {"type": "progress", "current": len(all_files), "total": None, "percentage": None}
 
     total = len(all_files)
     yield {"type": "start", "directory": directory, "total": total, "scan_record_id": scan_record.id}

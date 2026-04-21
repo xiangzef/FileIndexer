@@ -80,6 +80,8 @@ async def scan_paths(request: Request):
 
     job_id = str(uuid.uuid4())[:8]
     stop_event = threading.Event()
+    from scanner import clear_stop_flag
+    clear_stop_flag()
     with scan_lock:
         _stop_flags[job_id] = stop_event
 
@@ -131,14 +133,17 @@ async def scan_paths(request: Request):
 
 @app.post("/scan/stop")
 async def stop_scan_job(job_id: str = None):
+    from scanner import SCAN_STOP_FLAG
     if job_id:
         with scan_lock:
             if job_id in _stop_flags:
                 _stop_flags[job_id].set()
+                SCAN_STOP_FLAG.set()
                 return {"success": True, "message": f"已停止任务: {job_id}"}
     else:
         for ev in _stop_flags.values():
             ev.set()
+        SCAN_STOP_FLAG.set()
         return {"success": True, "message": "已停止所有任务"}
     return {"success": False, "message": "任务不存在"}
 
