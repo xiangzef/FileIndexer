@@ -274,7 +274,8 @@ async def get_all_file_ids(
     extension: str = None,
     is_duplicate: bool = None,
     keyword: str = None,
-    status: str = None
+    status: str = None,
+    file_types: str = None
 ):
     db = SessionLocal()
     query = db.query(FileEntry.id)
@@ -289,6 +290,25 @@ async def get_all_file_ids(
         query = query.filter(FileEntry.status == status)
     else:
         query = query.filter(FileEntry.status != 'suspended')
+    if file_types:
+        import json
+        try:
+            types = json.loads(file_types)
+            all_exts = []
+            type_map = {
+                'doc': ['.doc', '.docx'],
+                'pdf': ['.pdf'],
+                'xls': ['.csv', '.xls', '.xlsx', '.els', '.elsx'],
+                'ppt': ['.ppt', '.pptx'],
+                'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
+                'txt': ['.txt', '.md', '.log']
+            }
+            for t in types:
+                all_exts.extend(type_map.get(t, []))
+            if all_exts:
+                query = query.filter(FileEntry.extension.in_(all_exts))
+        except:
+            pass
 
     ids = [row[0] for row in query.all()]
     db.close()
