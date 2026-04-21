@@ -18,9 +18,9 @@ PROVIDER_CONFIGS = {
     },
     "qwen": {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "default_model": "qwen-turbo",
+        "default_model": "qwen3.5-flash",
         "supports_stream": False,
-        "models": ["qwen-turbo", "qwen-plus", "qwen-max", "qwen-max-long", "qwen2.5-7b-instruct", "qwen2.5-14b-instruct", "qwen2.5-32b-instruct", "qwen2.5-72b-instruct", "qwen2.5-coder-7b-instruct", "qwen2.5-coder-32b-instruct"]
+        "models": ["qwen3.6-max-preview", "qwen3-max", "qwen3.5-plus", "qwen3.5-flash", "qwen-plus", "qwen-plus-latest", "qwen-max", "qwen-max-latest", "qwen-turbo", "qwen-turbo-latest", "qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-coder-turbo", "qwen-long", "qwq-plus"]
     },
     "wenxin": {
         "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1",
