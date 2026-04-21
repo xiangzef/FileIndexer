@@ -880,19 +880,38 @@ async def generate_organize_plan(request: dict):
             return {"error": response}
 
         import json
+        import re
         try:
             plan = json.loads(response)
         except json.JSONDecodeError:
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response)
             if json_match:
-                plan_str = json_match.group(0)
-                try:
-                    plan = json.loads(plan_str)
-                except json.JSONDecodeError:
-                    brace_count = 0
-                    end_idx = len(plan_str)
-                    for i, c in enumerate(plan_str):
+                plan_str = json_match.group(1)
+            else:
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    plan_str = json_match.group(0)
+                else:
+                    return {"error": f"AI返回格式错误: 未找到JSON", "raw": response[:1000]}
+            try:
+                plan = json.loads(plan_str)
+            except json.JSONDecodeError:
+                brace_count = 0
+                quote_count = 0
+                in_string = False
+                escape_next = False
+                end_idx = len(plan_str)
+                for i, c in enumerate(plan_str):
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if c == '\\' and in_string:
+                        escape_next = True
+                        continue
+                    if c == '"' and not escape_next:
+                        quote_count += 1
+                        in_string = not in_string
+                    elif not in_string:
                         if c == '{':
                             brace_count += 1
                         elif c == '}':
@@ -900,11 +919,11 @@ async def generate_organize_plan(request: dict):
                             if brace_count == 0:
                                 end_idx = i + 1
                                 break
-                    plan_str = plan_str[:end_idx]
-                    try:
-                        plan = json.loads(plan_str)
-                    except json.JSONDecodeError:
-                        return {"error": f"AI返回格式错误: 无法解析JSON", "raw": response[:500]}
+                plan_str = plan_str[:end_idx]
+                try:
+                    plan = json.loads(plan_str)
+                except json.JSONDecodeError as e:
+                    return {"error": f"AI返回格式错误: 无法解析JSON (位置:{e.pos}, 内容片段: {plan_str[max(0,e.pos-50):e.pos+50]})", "raw": response[:1000]}
             else:
                 return {"error": "AI返回格式错误: 未找到JSON", "raw": response[:500]}
 
