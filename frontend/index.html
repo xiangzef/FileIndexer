@@ -371,8 +371,21 @@
                         <div class="progress-fill" :style="{width: aiProgress + '%'}"></div>
                     </div>
                 </div>
-                <div v-if="aiResult" style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:8px;max-height:300px;overflow-y:auto;">
+                <div v-if="aiResult && !aiAnalysisResult" style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:8px;max-height:300px;overflow-y:auto;">
                     <pre style="white-space:pre-wrap;font-size:13px;">{{ aiResult }}</pre>
+                </div>
+                <div v-if="aiAnalysisResult && aiAnalysisResult.total_files" style="margin-top:15px;max-height:300px;overflow-y:auto;">
+                    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:15px;border-radius:8px;margin-bottom:15px;">
+                        <div style="font-size:18px;font-weight:600;margin-bottom:8px;">📊 分析完成</div>
+                        <div style="opacity:0.9;">共 <strong>{{ aiAnalysisResult.total_files }}</strong> 个文件 | 建议文件夹: <strong>{{ aiAnalysisResult.suggested_folder_name }}</strong></div>
+                        <div style="margin-top:8px;font-size:13px;opacity:0.85;">{{ aiAnalysisResult.summary }}</div>
+                    </div>
+                    <div v-if="aiAnalysisResult.groups" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+                        <div v-for="(ids, groupName) in aiAnalysisResult.groups" :key="groupName" style="background:white;border-radius:8px;padding:12px;border-left:4px solid #667eea;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                            <div style="font-weight:600;color:#333;font-size:14px;margin-bottom:4px;">{{ groupName }}</div>
+                            <div style="color:#666;font-size:12px;">{{ ids.length }} 个文件</div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
