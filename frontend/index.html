@@ -330,7 +330,7 @@
                     <h3>🤖 AI 分析与归档</h3>
                     <button class="modal-close" @click="showAIModal = false">&times;</button>
                 </div>
-            <div class="modal-body">
+                <div class="modal-body">
                 <div style="margin-bottom:20px;">
                     <label style="display:block;margin-bottom:8px;font-weight:500;">AI 提供商</label>
                     <select v-model="aiProvider" style="padding:12px;border:1px solid #ddd;border-radius:8px;width:100%;">
@@ -407,9 +407,9 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3>📁 来源管理</h3>
-                    <button class="modal-close" @click="showSourceModal = false">&times;</button>
-                </div>
-                <div class="modal-body">
+                <button class="modal-close" @click="showSourceModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
                 <div style="margin-bottom:15px;">
                     <button class="btn btn-secondary" @click="checkUnavailable" :disabled="checkingUnavailable">
                         {{ checkingUnavailable ? '检测中...' : '检测不可用文件' }}
