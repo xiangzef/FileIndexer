@@ -13,7 +13,9 @@ DOC_EXTENSIONS = {'.doc', '.docx', '.wps', '.wpt'}
 CSV_EXTENSIONS = {'.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'}
 PDF_EXTENSIONS = {'.pdf'}
-ALL_SUPPORTED = DOC_EXTENSIONS | CSV_EXTENSIONS | IMAGE_EXTENSIONS | PDF_EXTENSIONS
+PPT_EXTENSIONS = {'.ppt', '.pptx', '.pot', '.potx'}
+EBOOK_EXTENSIONS = {'.epub', '.mobi', '.azw', '.azw3', '.azw4', '.kf8', '.kfx', '.fb2', '.cbr', '.cbz', '.chm', '.ibooks'}
+ALL_SUPPORTED = DOC_EXTENSIONS | CSV_EXTENSIONS | IMAGE_EXTENSIONS | PDF_EXTENSIONS | PPT_EXTENSIONS | EBOOK_EXTENSIONS
 
 SCAN_STOP_FLAG = threading.Event()
 SCAN_LOCK = threading.Lock()

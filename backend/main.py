@@ -211,12 +211,13 @@ async def get_files(
         query = query.filter(FileEntry.status == status)
     if file_type:
         type_map = {
-            'doc': ['.doc', '.docx'],
+            'doc': ['.doc', '.docx', '.wps', '.wpt'],
             'pdf': ['.pdf'],
-            'xls': ['.csv', '.xls', '.xlsx', '.els', '.elsx'],
-            'ppt': ['.ppt', '.pptx'],
+            'xls': ['.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'],
+            'ppt': ['.ppt', '.pptx', '.pot', '.potx'],
             'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
-            'txt': ['.txt', '.md', '.log']
+            'txt': ['.txt', '.md', '.log', '.chm'],
+            'ebook': ['.epub', '.mobi', '.azw', '.azw3', '.azw4', '.kf8', '.kfx', '.fb2', '.cbr', '.cbz', '.ibooks']
         }
         exts = type_map.get(file_type, [])
         if exts:
@@ -227,12 +228,13 @@ async def get_files(
             types = json.loads(file_types)
             all_exts = []
             type_map = {
-                'doc': ['.doc', '.docx'],
+                'doc': ['.doc', '.docx', '.wps', '.wpt'],
                 'pdf': ['.pdf'],
-                'xls': ['.csv', '.xls', '.xlsx', '.els', '.elsx'],
-                'ppt': ['.ppt', '.pptx'],
+                'xls': ['.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'],
+                'ppt': ['.ppt', '.pptx', '.pot', '.potx'],
                 'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
-                'txt': ['.txt', '.md', '.log']
+                'txt': ['.txt', '.md', '.log', '.chm'],
+                'ebook': ['.epub', '.mobi', '.azw', '.azw3', '.azw4', '.kf8', '.kfx', '.fb2', '.cbr', '.cbz', '.ibooks']
             }
             for t in types:
                 all_exts.extend(type_map.get(t, []))

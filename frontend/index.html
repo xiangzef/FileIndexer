@@ -492,11 +492,13 @@
                 const selectedTypes = ref([]);
                 const showTypeDropdown = ref(false);
                 const allTypes = [
-                    { value: 'doc', label: 'Word文档(.doc/.docx/.wps)' },
-                    { value: 'pdf', label: 'PDF文档(.pdf)' },
-                    { value: 'xls', label: '表格文件(.xls/.xlsx/.csv)' },
-                    { value: 'img', label: '图片(.jpg/.png/.gif等)' },
-                    { value: 'txt', label: '文本文件(.txt/.md)' }
+                    { value: 'doc', label: 'Word文档', exts: ['.doc', '.docx', '.wps', '.wpt'] },
+                    { value: 'pdf', label: 'PDF文档', exts: ['.pdf'] },
+                    { value: 'xls', label: '表格文件', exts: ['.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'] },
+                    { value: 'ppt', label: 'PPT幻灯片', exts: ['.ppt', '.pptx', '.pot', '.potx'] },
+                    { value: 'img', label: '图片', exts: ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'] },
+                    { value: 'txt', label: '文本文件', exts: ['.txt', '.md', '.log', '.chm'] },
+                    { value: 'ebook', label: '电子书', exts: ['.epub', '.mobi', '.azw', '.azw3', '.azw4', '.kf8', '.kfx', '.fb2', '.cbr', '.cbz', '.ibooks'] }
                 ];
 
                 function toggleTypeFilter(type) {

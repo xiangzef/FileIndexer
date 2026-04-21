@@ -214,6 +214,8 @@ class OrganizePromptBuilder:
             'ttf': '字体', 'otf': '字体', 'woff': '字体', 'woff2': '字体',
             'db': '数据库', 'sqlite': '数据库', 'mdb': '数据库',
             'exe': '程序', 'msi': '程序', 'dmg': '程序', 'pkg': '程序',
+            'ppt': '演示', 'pptx': '演示', 'pot': '演示', 'potx': '演示',
+            'epub': '电子书', 'mobi': '电子书', 'azw': '电子书', 'azw3': '电子书', 'azw4': '电子书', 'kf8': '电子书', 'kfx': '电子书', 'fb2': '电子书', 'cbr': '电子书', 'cbz': '电子书', 'chm': '电子书', 'ibooks': '电子书',
         }
         return type_map.get(ext, '其他')
 
