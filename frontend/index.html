@@ -306,7 +306,6 @@
                         <span class="tag" :class="{active: archiveTypes.includes('.jpg') || archiveTypes.includes('.png') || archiveTypes.includes('.gif')}" @click="toggleArchiveType('.jpg')">图片</span>
                     </div>
                 </div>
-            </div>
 
         <div v-if="showAIModal" class="modal-overlay" @click.self="showAIModal = false">
         <div class="modal-content">
@@ -1337,6 +1336,7 @@
                     scanProgress, scanStatus, files, selectedFiles, archiveTypes, archiveSmart,
                     isPageAllSelected, updatePageAllState, togglePageAll,
                     searchKeyword, filterDuplicate, filterStatus, selectedExt,
+                    selectedTypes, showTypeDropdown, allTypes, toggleTypeFilter,
                     currentPage, pageSize, totalFiles, totalPages,
                     logs, archiveDir, archiveMode, stats, archiving, toggleArchiveType,
                     aiAnalyzing, autoDetecting, aiMode, apiKey,
