@@ -139,6 +139,52 @@ class AIProvider:
             "analysis": "文件分析完成"
         }
 
+    def chat(self, system_prompt: str, user_prompt: str) -> str:
+        """
+        使用AI聊天接口生成回复
+        """
+        if self.provider == "local" or self.provider == "rule":
+            return self._rule_chat(user_prompt)
+
+        if not self.api_key:
+            return "错误: 缺少API Key"
+
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            data = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "max_tokens": 4000
+            }
+
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                return result["choices"][0]["message"]["content"].strip()
+            else:
+                return f"错误: API返回 {response.status_code} - {response.text[:200]}"
+        except Exception as e:
+            return f"错误: {str(e)}"
+
+    def _rule_chat(self, user_prompt: str) -> str:
+        """
+        规则模式下的简单回复（用于测试）
+        """
+        return '{"folders":[{"name":"文档整理","files":[]}],"summary":"规则模式暂不支持AI整理"}'
+
 def get_ai_provider(provider: str = "ollama", api_key: Optional[str] = None,
                      model: Optional[str] = None, base_url: Optional[str] = None) -> AIProvider:
     return AIProvider(provider, api_key, model, base_url)
