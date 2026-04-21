@@ -458,6 +458,7 @@
         createApp({
             setup() {
                 console.log('Vue setup running...');
+                try {
                 const scanPath = ref('');
                 const scanning = ref(false);
                 const computing = ref(false);
@@ -1337,6 +1338,7 @@
                     debounceSearch, formatSize, formatDate
                 };
                 console.log('Vue app mounted successfully');
+                } catch(e) { console.error('Setup error:', e); }
             }
         }).mount('#app');
         console.log('Vue mount called');
