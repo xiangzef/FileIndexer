@@ -372,34 +372,19 @@
                     </div>
                 </div>
                 <div v-if="aiResult" style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:8px;max-height:400px;overflow-y:auto;">
-                    <div v-if="aiAnalysisResult" style="font-size:13px;">
+                    <div v-if="aiAnalysisResult && aiAnalysisResult.total_files" style="font-size:13px;">
                         <div style="margin-bottom:15px;padding:10px;background:#e3f2fd;border-radius:6px;">
                             <div style="font-weight:600;color:#1565c0;margin-bottom:5px;">📊 分析摘要</div>
                             <div>{{ aiAnalysisResult.total_files }} 个文件 | 建议文件夹: {{ aiAnalysisResult.suggested_folder_name }}</div>
                             <div style="margin-top:8px;color:#666;">{{ aiAnalysisResult.summary }}</div>
                         </div>
                         <div v-if="aiAnalysisResult.groups" style="margin-top:10px;">
-                            <div style="font-weight:600;margin-bottom:8px;">📁 分组结果</div>
+                            <div style="font-weight:600;margin-bottom:8px;">📁 分组结果 ({{ Object.keys(aiAnalysisResult.groups).length }} 组)</div>
                             <div v-for="(ids, groupName) in aiAnalysisResult.groups" :key="groupName" style="margin-bottom:8px;padding:8px;background:#fff;border-radius:6px;border-left:3px solid #4caf50;">
                                 <div style="font-weight:500;color:#2e7d32;">{{ groupName }}</div>
                                 <div style="color:#666;font-size:12px;margin-top:4px;">{{ ids.length }} 个文件</div>
                             </div>
                         </div>
-                        <details v-if="aiAnalysisResult.analyses" style="margin-top:10px;">
-                            <summary style="cursor:pointer;font-weight:600;color:#666;">📋 详细分析 ({{ aiAnalysisResult.analyses.length }} 项)</summary>
-                            <div style="margin-top:8px;max-height:200px;overflow-y:auto;">
-                                <div v-for="item in aiAnalysisResult.analyses.slice(0, 20)" :key="item.id" style="margin-bottom:6px;padding:6px;background:#fff;border-radius:4px;font-size:12px;">
-                                    <div style="font-weight:500;">{{ item.name }}</div>
-                                    <div style="color:#888;font-size:11px;margin-top:2px;">
-                                        <span v-if="item.name_analysis.project">项目: {{ item.name_analysis.project }}</span>
-                                        <span v-if="item.name_analysis.keywords && item.name_analysis.keywords.length"> | 关键词: {{ item.name_analysis.keywords.slice(0,5).join(', ') }}</span>
-                                    </div>
-                                </div>
-                                <div v-if="aiAnalysisResult.analyses.length > 20" style="color:#999;text-align:center;padding:10px;">
-                                    还有 {{ aiAnalysisResult.analyses.length - 20 }} 项未显示
-                                </div>
-                            </div>
-                        </details>
                     </div>
                     <pre v-else style="white-space:pre-wrap;font-size:13px;">{{ aiResult }}</pre>
                 </div>
