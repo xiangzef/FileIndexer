@@ -523,17 +523,24 @@ async def ai_analyze_files(request: dict):
     """
     使用AI分析文件，基于文件名和内容
     """
-    file_ids = request.get("file_ids", [])
-    provider = request.get("provider", "ollama")
-    api_key = request.get("api_key", None)
-    model = request.get("model", None)
-    base_url = request.get("base_url", None)
+    try:
+        file_ids = request.get("file_ids", [])
+        provider = request.get("provider", "ollama")
+        api_key = request.get("api_key", None)
+        model = request.get("model", None)
+        base_url = request.get("base_url", None)
 
-    db = SessionLocal()
-    ai_provider = get_ai_provider(provider, api_key, model, base_url)
-    result = analyze_files(db, file_ids, ai_provider)
-    db.close()
-    return result
+        db = SessionLocal()
+        try:
+            ai_provider = get_ai_provider(provider, api_key, model, base_url)
+            result = analyze_files(db, file_ids, ai_provider)
+            return result
+        finally:
+            db.close()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e), "detail": "AI分析失败，请检查配置和文件路径"}
 
 @app.post("/ai/archive")
 async def ai_archive_files_endpoint(request: dict):
