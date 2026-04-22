@@ -31,9 +31,9 @@ PROVIDER_CONFIGS = {
     },
     "minimax": {
         "base_url": "https://api.minimax.chat/v1",
-        "default_model": "abab6.5s-chat",
+        "default_model": "MiniMax-M2.1",
         "supports_stream": False,
-        "models": ["abab6.5s-chat", "abab6.5-chat", "abab5.5s-chat", "abab5.5-chat", "abab6-chat", "speech-01"]
+        "models": ["MiniMax-Text-01", "MiniMax-M2.1", "MiniMax-M2.1-mini", "MiniMax-VL-01", "MiniMax-M2", "MiniMax-M2.7"]
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
