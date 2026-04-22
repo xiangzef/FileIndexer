@@ -21,6 +21,9 @@ SCAN_STOP_FLAG = threading.Event()
 SCAN_LOCK = threading.Lock()
 _active_scan = None
 
+BATCH_COMMIT_SIZE = 100
+BATCH_QUERY_SIZE = 500
+
 def set_stop_check(callback):
     global SCAN_STOP_FLAG
     SCAN_STOP_FLAG = threading.Event()
@@ -83,20 +86,36 @@ def scan_directory(
             if ext in extensions:
                 full_path = os.path.join(root, filename)
                 all_files.append(full_path)
-        
+
         file_count += len(files)
-        if file_count % 500 == 0:
+        if file_count % 1000 == 0:
             yield {"type": "progress", "current": len(all_files), "total": None, "percentage": None}
 
     total = len(all_files)
     yield {"type": "start", "directory": directory, "total": total, "scan_record_id": scan_record.id}
 
+    existing_paths = set()
+    for i in range(0, len(all_files), BATCH_QUERY_SIZE):
+        batch = all_files[i:i + BATCH_QUERY_SIZE]
+        existing = db.query(FileEntry.path).filter(FileEntry.path.in_(batch)).all()
+        existing_paths.update(row[0] for row in existing)
+        if SCAN_STOP_FLAG.is_set():
+            scan_record.status = 'stopped'
+            db.commit()
+            yield {"type": "stopped", "directory": directory}
+            return
+
     stats = {}
     scanned_count = 0
     scanned_size = 0
+    entries_to_add = []
+    now = datetime.now()
 
     for idx, file_path in enumerate(all_files):
         if SCAN_STOP_FLAG.is_set():
+            if entries_to_add:
+                db.add_all(entries_to_add)
+                db.commit()
             scan_record.status = 'stopped'
             scan_record.total_files = scanned_count
             scan_record.total_size = scanned_size
@@ -105,28 +124,20 @@ def scan_directory(
             yield {"type": "stopped", "directory": directory}
             return
 
+        if file_path in existing_paths:
+            continue
+
         stat = None
         for attempt in range(3):
-            if SCAN_STOP_FLAG.is_set():
-                scan_record.status = 'stopped'
-                scan_record.total_files = scanned_count
-                scan_record.total_size = scanned_size
-                scan_record.stats_json = json.dumps(stats)
-                db.commit()
-                yield {"type": "stopped", "directory": directory}
-                return
             try:
                 stat = os.stat(file_path)
                 break
             except:
-                time.sleep(0.05)
+                time.sleep(0.01)
         if stat is None:
             continue
 
         ext = os.path.splitext(file_path)[1].lower()
-        existing = db.query(FileEntry).filter_by(path=file_path).first()
-        if existing:
-            continue
 
         try:
             entry = FileEntry(
@@ -137,14 +148,14 @@ def scan_directory(
                 md5=None,
                 created_time=datetime.fromtimestamp(stat.st_ctime),
                 modified_time=datetime.fromtimestamp(stat.st_mtime),
-                scan_time=datetime.now(),
+                scan_time=now,
                 is_duplicate=False,
                 duplicate_of_id=None,
                 status='available',
                 source_path=directory,
                 scan_record_id=scan_record.id
             )
-            db.add(entry)
+            entries_to_add.append(entry)
 
             scanned_count += 1
             scanned_size += stat.st_size
@@ -154,10 +165,10 @@ def scan_directory(
             stats[ext]["count"] += 1
             stats[ext]["size"] += stat.st_size
 
-            if scanned_count % 10 == 0:
-                scan_record.total_files = scanned_count
-                scan_record.total_size = scanned_size
+            if len(entries_to_add) >= BATCH_COMMIT_SIZE:
+                db.add_all(entries_to_add)
                 db.commit()
+                entries_to_add = []
 
                 yield {
                     "type": "progress",
@@ -170,6 +181,10 @@ def scan_directory(
                 }
         except Exception as e:
             yield {"type": "error", "file": file_path, "message": str(e)}
+
+    if entries_to_add:
+        db.add_all(entries_to_add)
+        db.commit()
 
     scan_record.total_files = scanned_count
     scan_record.total_size = scanned_size
@@ -198,43 +213,29 @@ def compute_md5_batch(db: Session, file_ids: List[int]) -> Generator[Dict[str, A
             "type": "progress",
             "current": idx + 1,
             "total": total,
-            "file_id": entry.id,
-            "md5": md5,
-            "percentage": int((idx + 1) / total * 100)
+            "file": entry.path
         }
 
     yield {"type": "complete", "total": total}
 
-def find_duplicates(db: Session) -> List[Dict[str, Any]]:
-    duplicates = []
-
+def find_duplicates(db: Session, scan_record_id: int) -> Generator[Dict[str, Any], None, None]:
+    entries = db.query(FileEntry).filter_by(scan_record_id=scan_record_id, md5 != None).all()
     md5_groups = {}
-    entries = db.query(FileEntry).filter(FileEntry.md5.isnot(None)).all()
-
     for entry in entries:
-        if entry.md5 not in md5_groups:
-            md5_groups[entry.md5] = []
-        md5_groups[entry.md5].append(entry)
+        if entry.md5:
+            if entry.md5 not in md5_groups:
+                md5_groups[entry.md5] = []
+            md5_groups[entry.md5].append(entry)
 
+    duplicates = []
     for md5, group in md5_groups.items():
         if len(group) > 1:
-            group.sort(key=lambda x: (x.modified_time or datetime.min, x.path))
-            original = group[0]
-            for dup in group[1:]:
-                dup.is_duplicate = True
-                dup.duplicate_of_id = original.id
-                duplicates.append({
-                    "original_id": original.id,
-                    "original_path": original.path,
-                    "duplicate_id": dup.id,
-                    "duplicate_path": dup.path,
-                    "size": dup.size,
-                    "md5": md5
-                })
+            for entry in group[1:]:
+                entry.is_duplicate = True
+                entry.duplicate_of_id = group[0].id
+                duplicates.append(entry.id)
 
-    db.commit()
-    return duplicates
+    if duplicates:
+        db.commit()
 
-def stop_scan():
-    global SCAN_STOP_FLAG
-    SCAN_STOP_FLAG.set()
+    yield {"type": "complete", "duplicate_count": len(duplicates)}
