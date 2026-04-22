@@ -923,7 +923,16 @@ async def generate_organize_plan(request: dict):
                 try:
                     plan = json.loads(plan_str)
                 except json.JSONDecodeError as e:
-                    return {"error": f"AI返回格式错误: 无法解析JSON (位置:{e.pos}, 内容片段: {plan_str[max(0,e.pos-50):e.pos+50]})", "raw": response[:1000]}
+                    last_valid_pos = e.pos
+                    while last_valid_pos > 0:
+                        try:
+                            test_str = plan_str[:last_valid_pos] + '"]}]}'
+                            plan = json.loads(test_str)
+                            break
+                        except:
+                            last_valid_pos -= 1
+                    else:
+                        return {"error": f"AI返回格式被截断(位置:{e.pos})，内容片段: {plan_str[max(0,e.pos-50):e.pos+50]}", "raw": response[:1000]}
             else:
                 return {"error": "AI返回格式错误: 未找到JSON", "raw": response[:500]}
 
