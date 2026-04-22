@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Generator, Dict, Any
+from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import Session
 from database import FileEntry, ScanRecord
 
@@ -219,7 +220,7 @@ def compute_md5_batch(db: Session, file_ids: List[int]) -> Generator[Dict[str, A
     yield {"type": "complete", "total": total}
 
 def find_duplicates(db: Session, scan_record_id: int) -> Generator[Dict[str, Any], None, None]:
-    entries = db.query(FileEntry).filter_by(scan_record_id=scan_record_id, md5 != None).all()
+    entries = db.query(FileEntry).filter(and_(FileEntry.scan_record_id == scan_record_id, FileEntry.md5 != None)).all()
     md5_groups = {}
     for entry in entries:
         if entry.md5:
@@ -239,3 +240,7 @@ def find_duplicates(db: Session, scan_record_id: int) -> Generator[Dict[str, Any
         db.commit()
 
     yield {"type": "complete", "duplicate_count": len(duplicates)}
+
+def stop_scan():
+    global SCAN_STOP_FLAG
+    SCAN_STOP_FLAG.set()
