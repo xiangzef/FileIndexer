@@ -344,6 +344,10 @@
                     loadModels();
                 });
 
+                watch(aiApiKey, (newVal) => {
+                    setApiKey(newVal);
+                });
+
                 watch(targetDir, (newVal) => {
                     localStorage.setItem('targetDir', newVal);
                     if (newVal && !targetDirHistory.value.includes(newVal)) {

@@ -174,7 +174,7 @@ class AIProvider:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                "max_tokens": 4000
+                "max_tokens": 16000
             }
 
             response = requests.post(
