@@ -136,7 +136,7 @@
                                 <option value="deepseek">DeepSeek</option>
                             </select>
                         </div>
-                        <div class="input-group" style="margin-bottom:10px;">
+                        <div class="input-group" style="margin-bottom:10px;" v-show="aiProvider !== 'ollama'">
                             <label style="font-size:12px;color:#666;">API Key</label>
                             <input type="password" v-model="aiApiKey" placeholder="输入API Key" style="padding:8px;border:1px solid #ddd;border-radius:6px;width:100%;">
                         </div>
@@ -320,7 +320,7 @@
                 const archiveMode = ref('copy');
                 const archiveSmart = ref(true);
                 const DEFAULT_MODELS = {
-                    ollama: ["llama3", "llama3.1", "llama3.2", "mistral", "codellama", "qwen2.5", "phi3", "gemma2"],
+                    ollama: ["llama3", "llama3.1", "llama3.2", "mistral", "phi3", "gemma2", "codellama"],
                     zhipu: ["glm-4", "glm-4-flash", "glm-4-plus", "glm-4v", "glm-4v-plus", "cogview-3"],
                     qwen: ["qwen3.6-max-preview", "qwen3-max", "qwen3.5-plus", "qwen3.5-flash", "qwen-plus", "qwen-plus-latest", "qwen-max", "qwen-max-latest", "qwen-turbo", "qwen-turbo-latest", "qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-coder-turbo", "qwen-long", "qwq-plus"],
                     wenxin: ["ernie-4-8k", "ernie-4-32k", "ernie-4-128k", "ernie-speed-128k", "ernie-speed-pro-128k", "ernie-lite-pro-8k", "ernie-lite-8k", "ernie-mini", "ernie-turbo-pro-128k", "ernie-turbo-8k"],

@@ -8,7 +8,8 @@ PROVIDER_CONFIGS = {
         "base_url": "http://localhost:11434/v1",
         "default_model": "llama3",
         "supports_stream": True,
-        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "codellama", "qwen2.5", "phi3", "gemma2"]
+        "requires_api_key": False,
+        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "qwen2.5", "phi3", "gemma2", "codellama"]
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
@@ -153,15 +154,20 @@ class AIProvider:
         if self.provider == "local" or self.provider == "rule":
             return self._rule_chat(user_prompt)
 
-        if not self.api_key:
+        config = PROVIDER_CONFIGS.get(self.provider, {})
+        if config.get("requires_api_key") is False:
+            headers = {
+                "Content-Type": "application/json"
+            }
+        elif not self.api_key:
             return "错误: 缺少API Key"
-
-        try:
+        else:
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
 
+        try:
             data = {
                 "model": self.model,
                 "messages": [
