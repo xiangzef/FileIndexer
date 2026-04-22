@@ -430,7 +430,6 @@ def ai_archive_files(db: Session, file_ids: List[int], target_dir: str, mode: st
 
     try:
         if os.path.exists(temp_dir):
-            import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
     except Exception:
         pass

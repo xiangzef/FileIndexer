@@ -296,7 +296,9 @@
                 const selectedRecord = ref(null);
                 const previewFiles = ref([]);
                 const aiProvider = ref(localStorage.getItem('aiProvider') || 'ollama');
-                const aiApiKey = ref(localStorage.getItem('aiApiKey') || '');
+                const getApiKey = () => localStorage.getItem(`aiApiKey_${aiProvider.value}`) || '';
+                const setApiKey = (key) => localStorage.setItem(`aiApiKey_${aiProvider.value}`, key);
+                const aiApiKey = ref(getApiKey());
                 const aiModel = ref('');
                 const targetDir = ref(localStorage.getItem('targetDir') || '');
                 const targetDirHistory = ref(JSON.parse(localStorage.getItem('targetDirHistory') || '[]'));
@@ -333,7 +335,11 @@
                     aiModel.value = availableModels.value[0] || '';
                 };
 
-                watch(() => aiProvider.value, (newProvider) => {
+                watch(() => aiProvider.value, (newProvider, oldProvider) => {
+                    if (oldProvider) {
+                        setApiKey(aiApiKey.value);
+                    }
+                    aiApiKey.value = getApiKey();
                     aiModel.value = '';
                     loadModels();
                 });
