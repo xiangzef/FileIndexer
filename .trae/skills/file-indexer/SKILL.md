@@ -238,3 +238,50 @@ python -m uvicorn main:app --reload --host 127.0.0.1 --port 56789
 
 - `frontend/index.html` - 主界面 (文件列表、扫描、统计)
 - `frontend/ai-organize.html` - AI 整理页面
+
+## 待优化项
+
+### 1. 代码重复
+- **`get_base_name` 函数**在多文件重复定义，逻辑略有差异：
+  - `archiver.py` 和 `ai_analyzer.py` 各有一份
+  - 建议：提取到 `utils.py` 作为统一实现
+- **`type_map`** 在 `main.py` 和 `ai_analyzer.py` 中重复定义
+
+### 2. 数据库查询优化
+- `/files` 端点的分页查询 (`main.py:260-261`) 执行两次查询：先 `count()` 再 `all()`
+  - 可考虑窗口函数或单次查询方案
+- `deduplicate_files` 中的 N+1 查询问题：
+  - `main.py:246-271` 对每个 similar 条目都执行单独查询
+
+### 3. 异常处理
+- 大量使用 `except Exception as e: return None` 模式
+  - 建议区分异常类型（文件不存在/权限问题/文件损坏）
+  - 添加日志记录便于排查
+- `calculate_md5` 等关键函数的异常信息丢失
+
+### 4. 配置外部化
+- AI 提供商配置、文件扩展名集合硬编码在代码中
+  - 可提取到 `config.json` 或 `settings.py`
+  - 支持运行时修改无需重启服务
+
+### 5. 进度反馈机制
+- `scanner.py` 的 `progress_callback` 参数定义但未实际使用
+- 扫描流程进度可以更精细（目前只在每1000文件或每批次时更新）
+
+### 6. 类型注解
+- 部分函数缺少返回类型注解
+- `Generator` 泛型参数可以更具体
+
+### 7. 安全考虑
+- `/ai/models` 端点直接返回配置，无权限验证
+- 文件路径未做完整的安全校验（路径遍历攻击）
+
+### 8. 资源清理
+- 临时目录清理 (`shutil.rmtree(temp_dir, ignore_errors=True)`) 在异常时可能失败
+- 大文件处理时内存占用可能较高
+
+### 优先级建议
+1. **高优先级**: 提取公共函数到 utils.py（消除重复）
+2. **高优先级**: 文件路径安全校验
+3. **中优先级**: 配置文件外部化
+4. **低优先级**: 类型注解完善、进度反馈优化
