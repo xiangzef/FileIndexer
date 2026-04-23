@@ -846,7 +846,7 @@ async def generate_organize_plan(request: dict):
         if not files:
             return {"error": "没有找到文件"}
 
-        MAX_FILES_FOR_AI = 300
+        MAX_FILES_FOR_AI = 200
         if len(files) > MAX_FILES_FOR_AI:
             files = files[:MAX_FILES_FOR_AI]
 
@@ -855,16 +855,14 @@ async def generate_organize_plan(request: dict):
             fd = {
                 "id": f.id,
                 "name": f.name,
-                "path": f.path,
-                "extension": f.extension,
-                "size": f.size,
-                "md5": f.md5
+                "ext": f.extension,
+                "size": f.size
             }
 
             if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
                 try:
                     with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
-                        fd['text_preview'] = fp.read()[:2000]
+                        fd['text'] = fp.read()[:1000]
                 except:
                     pass
 

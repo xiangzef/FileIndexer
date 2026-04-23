@@ -120,18 +120,13 @@ class OrganizePromptBuilder:
         for i, f in enumerate(files):
             name = f.get('name', '')
             size = f.get('size', 0)
-            ext = f.get('extension', '')
-            path = f.get('path', '')
-            md5 = f.get('md5', '')
-            text_preview = f.get('text_preview', '')[:200] if f.get('text_preview') else ''
+            ext = f.get('ext', f.get('extension', ''))
+            text = f.get('text', f.get('text_preview', ''))[:200] if f.get('text', f.get('text_preview', '')) else ''
 
             size_str = self.format_size(size)
-            lines.append(f"{i+1}. {name}")
-            lines.append(f"   路径: {path}")
-            lines.append(f"   大小: {size_str} | 类型: {ext} | MD5: {md5[:8] if md5 else 'N/A'}")
-            if text_preview:
-                lines.append(f"   内容: {text_preview}...")
-            lines.append("")
+            lines.append(f"{i+1}. {name} [{ext}] {size_str}")
+            if text:
+                lines.append(f"   内容: {text}...")
 
         return "\n".join(lines)
 
