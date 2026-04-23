@@ -882,7 +882,7 @@ async def generate_organize_plan(request: dict):
         try:
             plan = json.loads(response)
         except json.JSONDecodeError:
-            json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response)
+            json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*\})\s*```', response)
             if json_match:
                 plan_str = json_match.group(1)
             else:
