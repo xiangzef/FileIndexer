@@ -87,6 +87,8 @@ class OrganizePromptBuilder:
 
 - 每个文件只能出现在一个文件夹中
 - 子文件夹可以嵌套，但建议不超过3层
+- **输出务必简洁！文件夹数量控制在10个以内，每个文件夹files数组尽量精简**
+- 只返回必要的JSON，不要包含任何解释性文字
 - 文件夹命名要简洁、有意义
 - 务必分析所有文件，不要遗漏
 - 如果文件数量超过30个，请优先按主题/项目分类，次要文件按类型分类"""
@@ -121,11 +123,10 @@ class OrganizePromptBuilder:
             name = f.get('name', '')
             size = f.get('size', 0)
             ext = f.get('ext', f.get('extension', ''))
-            path = f.get('path', '')
-            text = f.get('text', f.get('text_preview', ''))[:100] if f.get('text', f.get('text_preview', '')) else ''
+            text = f.get('text', '')[:80] if f.get('text', '') else ''
 
             size_str = self.format_size(size)
-            lines.append(f"{i+1}. {name} [{ext}] {size_str} | {path}")
+            lines.append(f"{i+1}. {name} [{ext}] {size_str}")
             if text:
                 lines.append(f"   内容: {text}...")
 

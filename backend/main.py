@@ -846,7 +846,7 @@ async def generate_organize_plan(request: dict):
         if not files:
             return {"error": "没有找到文件"}
 
-        MAX_FILES_FOR_AI = 200
+        MAX_FILES_FOR_AI = 100
         if len(files) > MAX_FILES_FOR_AI:
             files = files[:MAX_FILES_FOR_AI]
 
@@ -855,7 +855,6 @@ async def generate_organize_plan(request: dict):
             fd = {
                 "id": f.id,
                 "name": f.name,
-                "path": f.path[-150:] if len(f.path) > 150 else f.path,
                 "ext": f.extension,
                 "size": f.size
             }
