@@ -359,9 +359,6 @@
                 });
 
                 const saveApiKey = () => {
-                    console.log('saveApiKey called, value:', aiApiKey.value);
-                    console.log('Provider:', aiProvider.value);
-                    console.log('Storage key:', `aiApiKey_${aiProvider.value}`);
                     setApiKey(aiApiKey.value);
                     alert('API Key已保存: ' + aiApiKey.value);
                 };

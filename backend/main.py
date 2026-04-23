@@ -846,9 +846,9 @@ async def generate_organize_plan(request: dict):
         if not files:
             return {"error": "没有找到文件"}
 
-        MAX_FILES_FOR_AI = 100
+        MAX_FILES_FOR_AI = 60
         if len(files) > MAX_FILES_FOR_AI:
-            files = files[:MAX_FILES_FOR_AI]
+            return _ai_organize_chunked(files, learned_rules, include_content, ai_provider)
 
         file_data = []
         for f in files:
@@ -862,7 +862,7 @@ async def generate_organize_plan(request: dict):
             if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
                 try:
                     with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
-                        fd['text'] = fp.read()[:500]
+                        fd['text'] = fp.read()[:300]
                 except:
                     pass
 
@@ -944,10 +944,78 @@ async def generate_organize_plan(request: dict):
 
         return plan
 
-    except Exception as e:
-        return {"error": f"服务器错误: {str(e)}"}
-    finally:
-        db.close()
+def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
+    """
+    分批处理大量文件的AI整理
+    """
+    import json
+    BATCH_SIZE = 50
+    batches = [files[i:i+BATCH_SIZE] for i in range(0, len(files), BATCH_SIZE)]
+
+    prompt_builder = OrganizePromptBuilder(learned_rules)
+    system_prompt = prompt_builder.build_system_prompt()
+
+    all_classifications = {}
+
+    for batch_idx, batch in enumerate(batches):
+        batch_data = []
+        for f in batch:
+            fd = {"id": f.id, "name": f.name, "ext": f.extension, "size": f.size}
+            if include_content and f.extension in ['.txt', '.csv', '.md', '.log']:
+                try:
+                    with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
+                        fd['text'] = fp.read()[:200]
+                except:
+                    pass
+            batch_data.append(fd)
+
+        user_prompt = f"""这是第{batch_idx+1}/{len(batches)}批文件。请分析并返回JSON格式的分类结果：
+
+{prompt_builder.format_file_list(batch_data)}
+
+只返回一个JSON数组，格式：[{{"name":"文件名","folder":"建议的文件夹名"}}]"""
+
+        response = ai_provider.chat(system_prompt, user_prompt)
+        if response.startswith("错误:"):
+            return {"error": f"第{batch_idx+1}批处理失败: {response}"}
+
+        try:
+            classifications = json.loads(response)
+            for c in classifications:
+                all_classifications[c['name']] = c['folder']
+        except:
+            continue
+
+    if not all_classifications:
+        return {"error": "AI分类失败"}
+
+    file_list = "\n".join([f"{f.name} → {all_classifications.get(f.name, '未分类')}" for f in files])
+
+    final_prompt = f"""基于以下文件分类结果，生成最终的整理方案JSON：
+
+{file_list}
+
+请返回JSON格式：
+{{"folders":[{{"name":"文件夹名","files":[...]}}]}}"""
+
+    response = ai_provider.chat(system_prompt, final_prompt)
+    if response.startswith("错误:"):
+        return {"error": f"生成最终方案失败: {response}"}
+
+    try:
+        plan = json.loads(response)
+    except:
+        json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*\})\s*```', response)
+        if json_match:
+            plan = json.loads(json_match.group(1))
+        else:
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                plan = json.loads(json_match.group(0))
+            else:
+                return {"error": f"AI返回格式错误。实际返回: {response[:200]}"}
+
+    return plan
 
 @app.post("/ai/organize/execute")
 async def execute_organize_plan(request: dict):
