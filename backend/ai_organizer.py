@@ -121,10 +121,11 @@ class OrganizePromptBuilder:
             name = f.get('name', '')
             size = f.get('size', 0)
             ext = f.get('ext', f.get('extension', ''))
-            text = f.get('text', f.get('text_preview', ''))[:200] if f.get('text', f.get('text_preview', '')) else ''
+            path = f.get('path', '')
+            text = f.get('text', f.get('text_preview', ''))[:100] if f.get('text', f.get('text_preview', '')) else ''
 
             size_str = self.format_size(size)
-            lines.append(f"{i+1}. {name} [{ext}] {size_str}")
+            lines.append(f"{i+1}. {name} [{ext}] {size_str} | {path}")
             if text:
                 lines.append(f"   内容: {text}...")
 

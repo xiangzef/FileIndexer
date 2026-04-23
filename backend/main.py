@@ -855,6 +855,7 @@ async def generate_organize_plan(request: dict):
             fd = {
                 "id": f.id,
                 "name": f.name,
+                "path": f.path[-150:] if len(f.path) > 150 else f.path,
                 "ext": f.extension,
                 "size": f.size
             }
@@ -862,7 +863,7 @@ async def generate_organize_plan(request: dict):
             if include_content and f.extension in ['.txt', '.csv', '.md', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.xml', '.json']:
                 try:
                     with open(f.path, 'r', encoding='utf-8', errors='ignore') as fp:
-                        fd['text'] = fp.read()[:1000]
+                        fd['text'] = fp.read()[:500]
                 except:
                     pass
 
