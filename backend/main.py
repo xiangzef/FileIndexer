@@ -890,7 +890,7 @@ async def generate_organize_plan(request: dict):
                 if json_match:
                     plan_str = json_match.group(0)
                 else:
-                    return {"error": f"AI返回格式错误: 未找到JSON", "raw": response[:1000]}
+                    return {"error": f"AI返回格式错误: 未找到JSON。实际返回内容前200字符: {response[:200]}", "raw": response[:1000]}
             try:
                 plan = json.loads(plan_str)
             except json.JSONDecodeError:
