@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test localStorage</title>
+</head>
+<body>
+    <h1>Test localStorage</h1>
+    <input type="text" id="testInput" placeholder="输入测试">
+    <button onclick="save()">保存</button>
+    <button onclick="load()">读取</button>
+    <script>
+        function save() {
+            const val = document.getElementById('testInput').value;
+            localStorage.setItem('testKey', val);
+            alert('已保存: ' + val);
+        }
+        function load() {
+            const val = localStorage.getItem('testKey') || '';
+            document.getElementById('testInput').value = val;
+            alert('已读取: ' + val);
+        }
+    </script>
+</body>
+</html>
