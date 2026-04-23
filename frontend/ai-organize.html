@@ -105,7 +105,7 @@
                         <div class="input-group" style="margin-bottom:10px;">
                             <label style="font-size:12px;color:#666;">目标整理目录</label>
                             <div style="display:flex;gap:5px;">
-                                <input type="text" v-model="targetDir" placeholder="输入目标目录路径" list="targetDirList" style="padding:8px;border:1px solid #ddd;border-radius:6px;flex:1;">
+                                <input type="text" v-model="targetDir" @input="setTargetDir(targetDir)" placeholder="输入目标目录路径" list="targetDirList" style="padding:8px;border:1px solid #ddd;border-radius:6px;flex:1;">
                                 <datalist id="targetDirList">
                                     <option v-for="d in targetDirHistory" :key="d" :value="d">
                                 </datalist>
@@ -138,7 +138,7 @@
                         </div>
                         <div class="input-group" style="margin-bottom:10px;" v-show="aiProvider !== 'ollama'">
                             <label style="font-size:12px;color:#666;">API Key</label>
-                            <input type="password" v-model="aiApiKey" placeholder="输入API Key" style="padding:8px;border:1px solid #ddd;border-radius:6px;width:100%;">
+                            <input type="password" v-model="aiApiKey" @input="setApiKey(aiApiKey)" placeholder="输入API Key" style="padding:8px;border:1px solid #ddd;border-radius:6px;width:100%;">
                         </div>
                         <div class="input-group" style="margin-bottom:10px;">
                             <label style="font-size:12px;color:#666;">模型</label>
@@ -298,6 +298,16 @@
                 const aiProvider = ref(localStorage.getItem('aiProvider') || 'ollama');
                 const getApiKey = () => localStorage.getItem(`aiApiKey_${aiProvider.value}`) || '';
                 const setApiKey = (key) => localStorage.setItem(`aiApiKey_${aiProvider.value}`, key);
+                const setTargetDir = (dir) => {
+                    localStorage.setItem('targetDir', dir);
+                    if (dir && !targetDirHistory.value.includes(dir)) {
+                        targetDirHistory.value.unshift(dir);
+                        if (targetDirHistory.value.length > 10) {
+                            targetDirHistory.value.pop();
+                        }
+                        localStorage.setItem('targetDirHistory', JSON.stringify(targetDirHistory.value));
+                    }
+                };
                 const aiApiKey = ref(getApiKey());
                 const aiModel = ref('');
                 const targetDir = ref(localStorage.getItem('targetDir') || '');
@@ -342,21 +352,6 @@
                     aiApiKey.value = getApiKey();
                     aiModel.value = '';
                     loadModels();
-                });
-
-                watch(aiApiKey, (newVal) => {
-                    setApiKey(newVal);
-                });
-
-                watch(targetDir, (newVal) => {
-                    localStorage.setItem('targetDir', newVal);
-                    if (newVal && !targetDirHistory.value.includes(newVal)) {
-                        targetDirHistory.value.unshift(newVal);
-                        if (targetDirHistory.value.length > 10) {
-                            targetDirHistory.value.pop();
-                        }
-                        localStorage.setItem('targetDirHistory', JSON.stringify(targetDirHistory.value));
-                    }
                 });
 
                 const selectTargetDir = () => {
@@ -591,6 +586,7 @@
                     selectedTypes, selectedFileIds, archiveMode, archiveSmart,
                     availableTypes, filteredFiles,
                     availableModels, loadModels,
+                    setApiKey, setTargetDir,
                     selectTargetDir,
                     truncatePath, formatTime, formatSize, getTagClass, getTypeName,
                     toggleType, toggleFileSelection,
