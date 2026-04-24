@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import os
+import re
 import json
 import shutil
 import threading
@@ -41,6 +42,169 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def _sanitize_json(text: str) -> str:
+    """修复本地模型常见的JSON格式问题"""
+    text = text.replace('"', '"').replace('"', '"')
+    text = text.replace('"', '"').replace('"', '"')
+    text = text.replace('，', ',').replace('：', ':').replace('【', '[').replace('】', ']')
+    text = text.replace('{', '{').replace('}', '}')
+    text = text.replace('（', '(').replace('）', ')')
+    return text
+
+def _fix_json_brackets(text: str) -> str:
+    """修复括号错乱问题：把对象位置的()替换为{}"""
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+    while i < len(text):
+        ch = text[i]
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+            i += 1
+            continue
+        if ch == '\\':
+            result.append(ch)
+            escape_next = True
+            i += 1
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            i += 1
+            continue
+        if not in_string:
+            if ch == '(':
+                result.append('{')
+                i += 1
+                continue
+            elif ch == ')':
+                result.append('}')
+                i += 1
+                continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+def _extract_json_array(text: str):
+    """从文本中提取JSON数组"""
+    text = _sanitize_json(text)
+    text = _fix_json_brackets(text)
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == '[':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ']':
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return text[start:i+1]
+    return None
+
+def _extract_json_object(text: str):
+    """从文本中提取JSON对象"""
+    text = _sanitize_json(text)
+    text = _fix_json_brackets(text)
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return text[start:i+1]
+    return None
+
+def _try_fix_json(text: str) -> str:
+    """尝试修复不完整的JSON"""
+    text = _sanitize_json(text)
+    text = _fix_json_brackets(text)
+    text = text.strip()
+    if not text.startswith('{') and not text.startswith('['):
+        if text.startswith('json') or text.startswith('JSON') or text.startswith('```'):
+            lines = text.split('\n')
+            for idx, line in enumerate(lines):
+                line = line.strip()
+                if line.startswith('{') or line.startswith('['):
+                    text = '\n'.join(lines[idx:])
+                    break
+            else:
+                for idx, line in enumerate(lines):
+                    if '{' in line or '[' in line:
+                        text = '\n'.join(lines[idx:])
+                        break
+        else:
+            idx = text.find('{')
+            if idx >= 0:
+                text = text[idx:]
+            else:
+                idx = text.find('[')
+                if idx >= 0:
+                    text = text[idx:]
+    
+    # 修复截断的JSON：补全未闭合的括号和引号
+    if text:
+        fixed = _complete_json(text)
+        if fixed:
+            return fixed
+    return text
+
+def _complete_json(text: str) -> str:
+    """尝试补全被截断的JSON"""
+    stack = []
+    in_string = False
+    escape_next = False
+    last_valid = 0
+    
+    for i, ch in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\':
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ('{', '['):
+            stack.append((ch, i))
+            last_valid = i
+        elif ch in ('}', ']'):
+            if stack:
+                open_ch, _ = stack[-1]
+                if (open_ch == '{' and ch == '}') or (open_ch == '[' and ch == ']'):
+                    stack.pop()
+                    last_valid = i
+                else:
+                    # 括号不匹配，截断到这里
+                    return text[:i] + _close_brackets(stack)
+            else:
+                # 多余的闭合括号，截断
+                return text[:i] + _close_brackets([])
+    
+    # 如果还有未闭合的括号，尝试补全
+    if stack:
+        return text + _close_brackets(stack)
+    return None
+
+def _close_brackets(stack) -> str:
+    """补全未闭合的括号"""
+    result = []
+    for ch, _ in reversed(stack):
+        if ch == '{':
+            result.append('}')
+        elif ch == '[':
+            result.append(']')
+    return ''.join(result)
 
 def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
     """
@@ -84,18 +248,39 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
                 for c in classifications:
                     if isinstance(c, dict) and 'name' in c and 'folder' in c:
                         all_classifications[c['name']] = c['folder']
+                print(f"第{batch_idx+1}批处理成功，分类{len(classifications)}个文件")
+                continue
         except:
-            json_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', response)
-            if json_match:
-                try:
-                    classifications = json.loads(json_match.group(0))
+            pass
+
+        json_str = _extract_json_array(response)
+        if json_str:
+            try:
+                classifications = json.loads(_sanitize_json(json_str))
+                if isinstance(classifications, list):
                     for c in classifications:
                         if isinstance(c, dict) and 'name' in c and 'folder' in c:
                             all_classifications[c['name']] = c['folder']
-                except:
-                    pass
-            print(f"第{batch_idx+1}批解析失败，跳过")
-            continue
+                    print(f"第{batch_idx+1}批提取成功，分类{len(classifications)}个文件")
+                    continue
+            except Exception as e:
+                print(f"第{batch_idx+1}批解析失败: {e}")
+
+        json_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', response)
+        if json_match:
+            try:
+                classifications = json.loads(_sanitize_json(json_match.group(0)))
+                if isinstance(classifications, list):
+                    for c in classifications:
+                        if isinstance(c, dict) and 'name' in c and 'folder' in c:
+                            all_classifications[c['name']] = c['folder']
+                    print(f"第{batch_idx+1}批正则提取成功，分类{len(classifications)}个文件")
+                    continue
+            except:
+                pass
+
+        print(f"第{batch_idx+1}批解析失败，跳过。返回内容: {response[:150]}")
+        continue
 
     if not all_classifications:
         return {"error": "AI分类失败，所有批次均未成功返回结果"}
@@ -106,7 +291,7 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
 
 {file_list}
 
-请返回JSON格式：
+请返回JSON格式，只返回JSON不要其他内容：
 {{"folders":[{{"name":"文件夹名","files":[{{"id":文件ID,"name":"文件名"}}]}}]}}"""
 
     response = ai_provider.chat(system_prompt, final_prompt)
@@ -115,31 +300,37 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
 
     try:
         plan = json.loads(response)
+        return plan
     except:
-        json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*\})\s*```', response)
-        if json_match:
-            try:
-                plan = json.loads(json_match.group(1))
-            except:
-                json_match = re.search(r'\{[\s\S]*\}', response)
-                if json_match:
-                    try:
-                        plan = json.loads(json_match.group(0))
-                    except:
-                        return {"error": f"AI返回格式错误。实际返回: {response[:200]}"}
-                else:
-                    return {"error": f"AI返回格式错误。实际返回: {response[:200]}"}
-        else:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                try:
-                    plan = json.loads(json_match.group(0))
-                except:
-                    return {"error": f"AI返回格式错误。实际返回: {response[:200]}"}
-            else:
-                return {"error": f"AI返回格式错误。实际返回: {response[:200]}"}
+        pass
 
-    return plan
+    json_str = _extract_json_object(response)
+    if json_str:
+        try:
+            plan = json.loads(json_str)
+            return plan
+        except Exception as e:
+            print(f"提取JSON对象失败: {e}")
+
+    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
+    if json_match:
+        content = json_match.group(1).strip()
+        content = _try_fix_json(content)
+        try:
+            plan = json.loads(content)
+            return plan
+        except:
+            pass
+
+    fixed = _try_fix_json(response)
+    if fixed:
+        try:
+            plan = json.loads(fixed)
+            return plan
+        except:
+            pass
+
+    return {"error": f"AI返回格式错误。实际返回: {response[:300]}"}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

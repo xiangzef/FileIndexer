@@ -334,7 +334,7 @@
                 const archiveMode = ref('copy');
                 const archiveSmart = ref(true);
                 const DEFAULT_MODELS = {
-                    ollama: ["llama3", "llama3.1", "llama3.2", "mistral", "phi3", "gemma2", "codellama"],
+                    ollama: ["llama3", "llama3.1", "llama3.2", "qwen2.5", "qwen2.5:1.5b", "qwen2.5:3b", "mistral", "phi3", "gemma2", "codellama"],
                     zhipu: ["glm-4", "glm-4-flash", "glm-4-plus", "glm-4v", "glm-4v-plus", "cogview-3"],
                     qwen: ["qwen3.6-max-preview", "qwen3-max", "qwen3.5-plus", "qwen3.5-flash", "qwen-plus", "qwen-plus-latest", "qwen-max", "qwen-max-latest", "qwen-turbo", "qwen-turbo-latest", "qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-coder-turbo", "qwen-long", "qwq-plus"],
                     wenxin: ["ernie-4-8k", "ernie-4-32k", "ernie-4-128k", "ernie-speed-128k", "ernie-speed-pro-128k", "ernie-lite-pro-8k", "ernie-lite-8k", "ernie-mini", "ernie-turbo-pro-128k", "ernie-turbo-8k"],
@@ -344,9 +344,25 @@
                 };
                 const availableModels = ref([]);
 
-                const loadModels = () => {
-                    availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
-                    aiModel.value = availableModels.value[0] || '';
+                const loadModels = async () => {
+                    if (aiProvider.value === 'ollama') {
+                        try {
+                            const res = await fetch('http://localhost:11434/api/tags');
+                            const data = await res.json();
+                            if (data.models && data.models.length > 0) {
+                                availableModels.value = data.models.map(m => m.name);
+                            } else {
+                                availableModels.value = DEFAULT_MODELS.ollama;
+                            }
+                        } catch (e) {
+                            availableModels.value = DEFAULT_MODELS.ollama;
+                        }
+                    } else {
+                        availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
+                    }
+                    if (!availableModels.value.includes(aiModel.value)) {
+                        aiModel.value = availableModels.value[0] || '';
+                    }
                 };
 
                 watch(() => aiProvider.value, (newProvider, oldProvider) => {
@@ -359,8 +375,18 @@
                 });
 
                 const saveApiKey = () => {
-                    setApiKey(aiApiKey.value);
-                    alert('API Key已保存: ' + aiApiKey.value);
+                    const key = aiApiKey.value.trim();
+                    if (!key) {
+                        alert('API Key不能为空');
+                        return;
+                    }
+                    setApiKey(key);
+                    const saved = localStorage.getItem(`aiApiKey_${aiProvider.value}`);
+                    if (saved === key) {
+                        alert(`API Key已保存到 ${aiProvider.value} 提供商`);
+                    } else {
+                        alert('保存失败，请重试');
+                    }
                 };
 
                 const saveTargetDir = () => {

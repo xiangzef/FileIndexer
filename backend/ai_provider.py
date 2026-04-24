@@ -6,10 +6,10 @@ from typing import Optional, Dict, Any
 PROVIDER_CONFIGS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
-        "default_model": "llama3",
+        "default_model": "qwen2.5:1.5b",
         "supports_stream": True,
         "requires_api_key": False,
-        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "qwen2.5", "phi3", "gemma2", "codellama"]
+        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "qwen2.5", "qwen2.5:1.5b", "qwen2.5:3b", "phi3", "gemma2", "codellama"]
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
