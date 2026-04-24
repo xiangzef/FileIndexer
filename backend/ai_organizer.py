@@ -32,71 +32,47 @@ class OrganizePromptBuilder:
         self.learned_rules = learned_rules or []
 
     def build_system_prompt(self) -> str:
-        return """你是一个专业的文件整理助手。你的任务是根据文件特征分析并生成最优的整理方案。
+        return """你是文件整理专家。根据文件特征生成最优整理方案。
 
 ## 整理规则（按优先级）
 
-1. **版本文件合并**：名字类似、内容类似、文件大小相近的文件，可能是同一文件的不同版本，必须归纳到同一文件夹
-   - 特征：名称主体相同，有版本后缀（如_v1, _v2, 终稿, 草稿, copy, 副本等）
-   - 命名建议：`原名称_版本组`
+1. **版本文件合并**：名字类似、内容类似、大小相近的文件→同一文件夹
+   - 特征：名称主体相同，有版本后缀（_v1, _v2, 终稿, 草稿, copy等）
+   - 命名：`原名称_版本组`
 
-2. **后缀不同同系列**：名称近似但后缀（扩展名）不同的文件，归纳到一起
-   - 例如：report.docx, report.pdf, report.txt → 统一放在 report 相关文件夹
-   - 命名建议：使用共同名称作为文件夹名
+2. **同系列不同后缀**：名称近似但扩展名不同→同一文件夹
+   - 例：report.docx, report.pdf → report相关文件夹
 
-3. **内容领域归类**：多个已经分组好的文件夹，按照内容的领域/主题再次归类到更高层的文件夹
-   - 例如：多个项目文件夹 → 归类到 "项目" 文件夹
-   - 命名建议：使用领域关键词
+3. **内容领域归类**：已分组的文件夹按领域再次归类
+   - 例：多个项目文件夹→"项目"文件夹
 
-4. **按文件类型整理**：根据扩展名分类
-   - 文档类：doc, docx, pdf, txt, md, wps
-   - 表格类：xls, xlsx, csv, et
-   - 图片类：jpg, png, gif, bmp, webp, svg
-   - 视频类：mp4, avi, mkv, mov, wmv
-   - 音频类：mp3, wav, flac, aac, ogg
-   - 压缩类：zip, rar, 7z, tar, gz
-   - 代码类：py, js, java, cpp, c, h, html, css
-   - 命名：`[类型]文件夹`
+4. **按文件类型整理**：按扩展名分类
+   - 文档：doc,docx,pdf,txt,md,wps | 表格：xls,xlsx,csv,et
+   - 图片：jpg,png,gif,bmp,webp,svg | 视频：mp4,avi,mkv,mov
+   - 音频：mp3,wav,flac,aac | 压缩：zip,rar,7z,tar
+   - 代码：py,js,java,cpp,c,h,html,css | 数据：json,xml,yaml
 
-5. **最终目录结构**：最顶层是按文件类型分类的文件夹，类型文件夹内按领域/项目进一步细分
+5. **目录结构**：顶层按类型分类，内层按领域/项目细分
 
 ## 输出格式
 
-必须返回JSON格式的整理方案：
+必须返回JSON：
 ```json
-{
-  "folders": [
-    {
-      "name": "文件夹名称",
-      "reason": "归类原因",
-      "files": [{"id": 1, "name": "文件名", "path": "路径", "size": 1024}],
-      "subfolders": [
-        {
-          "name": "子文件夹名称",
-          "reason": "子级归类原因",
-          "files": [...]
-        }
-      ]
-    }
-  ],
-  "summary": "整体整理思路说明"
-}
+{"folders":[{"name":"文件夹名","reason":"原因","files":[{"id":1,"name":"文件名"}],"subfolders":[{"name":"子文件夹","reason":"原因","files":[]}]}],"summary":"整理思路"}
 ```
 
-## 重要提醒
-
-- 每个文件只能出现在一个文件夹中
-- 子文件夹可以嵌套，但建议不超过3层
-- **输出务必简洁！文件夹数量控制在10个以内，每个文件夹files数组尽量精简**
-- 只返回必要的JSON，不要包含任何解释性文字
-- 文件夹命名要简洁、有意义
-- 务必分析所有文件，不要遗漏
-- 如果文件数量超过30个，请优先按主题/项目分类，次要文件按类型分类"""
+## 规则
+- 每个文件只能在一个文件夹中
+- 子文件夹嵌套≤3层
+- **输出简洁！文件夹≤10个，每个files数组精简**
+- 只返回JSON，不要解释
+- 分析所有文件，不遗漏
+- 文件>30个：优先按主题/项目分类，次要按类型分类"""
 
     def build_user_prompt(self, files: List[Dict], learned_rules: List[Dict] = None, include_content: bool = False) -> str:
         rules_text = ""
         if learned_rules:
-            rules_text = "\n## 用户已保存的整理规则\n"
+            rules_text = "\n## 历史整理规则\n"
             for rule in learned_rules[-5:]:
                 rules_text += f"- {rule['pattern']}: → {rule['action']}\n"
 
@@ -105,17 +81,17 @@ class OrganizePromptBuilder:
             content_text = "\n## 文件内容摘要\n"
             for f in files[:30]:
                 if f.get('text_preview'):
-                    content_text += f"\n[{f['name']}]\n{f['text_preview'][:500]}\n"
+                    content_text += f"\n[{f['name']}]\n{f['text_preview'][:300]}\n"
 
         file_list = self.format_file_list(files)
 
-        return f"""## 待整理文件列表
+        return f"""## 待整理文件
 
 {file_list}
 {rules_text}
 {content_text}
 
-请根据整理规则生成最优的整理方案。返回JSON格式。"""
+请根据规则生成JSON整理方案。"""
 
     def format_file_list(self, files: List[Dict]) -> str:
         lines = []
@@ -123,7 +99,7 @@ class OrganizePromptBuilder:
             name = f.get('name', '')
             size = f.get('size', 0)
             ext = f.get('ext', f.get('extension', ''))
-            text = f.get('text', '')[:80] if f.get('text', '') else ''
+            text = f.get('text', '')[:60] if f.get('text', '') else ''
 
             size_str = self.format_size(size)
             lines.append(f"{i+1}. {name} [{ext}] {size_str}")
