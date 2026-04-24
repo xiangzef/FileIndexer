@@ -147,7 +147,7 @@ class AIProvider:
             "analysis": "文件分析完成"
         }
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
+    def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
         """
         使用AI聊天接口生成回复
         """
@@ -167,46 +167,71 @@ class AIProvider:
                 "Authorization": f"Bearer {self.api_key}"
             }
 
-        try:
-            data = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "max_tokens": 16000
-            }
+        data = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": 16000
+        }
 
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=data,
-                timeout=300
-            )
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=data,
+                    timeout=300
+                )
 
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"].strip()
-            elif response.status_code >= 500:
-                return f"错误: AI服务内部错误 ({response.status_code})，请检查AI服务是否运行正常"
-            elif response.status_code == 401:
-                return f"错误: API认证失败，请检查API Key是否正确"
-            elif response.status_code == 400:
-                import json
-                try:
-                    err_data = json.loads(response.text)
-                    err_msg = err_data.get("error", {}).get("message", response.text[:200])
-                    return f"错误: 模型不存在或无访问权限，请检查模型名称是否正确。当前模型: {self.model}"
-                except:
-                    return f"错误: 请求参数错误 - {response.text[:200]}"
-            else:
-                return f"错误: API返回 {response.status_code} - {response.text[:200]}"
-        except requests.exceptions.ConnectionError:
-            return f"错误: 无法连接到AI服务，请确保AI服务已启动"
-        except requests.exceptions.Timeout:
-            return f"错误: AI服务响应超时(5分钟)，文件数量可能过多或网络较慢，建议减少文件数量重试"
-        except Exception as e:
-            return f"错误: {str(e)}"
+                if response.status_code == 200:
+                    result = response.json()
+                    return result["choices"][0]["message"]["content"].strip()
+                elif response.status_code >= 500:
+                    last_error = f"AI服务内部错误 ({response.status_code})"
+                    if attempt < max_retries:
+                        import time
+                        time.sleep(2 ** attempt)
+                        continue
+                    return f"错误: {last_error}，请检查AI服务是否运行正常"
+                elif response.status_code == 401:
+                    return f"错误: API认证失败，请检查API Key是否正确"
+                elif response.status_code == 400:
+                    import json
+                    try:
+                        err_data = json.loads(response.text)
+                        err_msg = err_data.get("error", {}).get("message", response.text[:200])
+                        return f"错误: 模型不存在或无访问权限，请检查模型名称是否正确。当前模型: {self.model}"
+                    except:
+                        return f"错误: 请求参数错误 - {response.text[:200]}"
+                else:
+                    return f"错误: API返回 {response.status_code} - {response.text[:200]}"
+            except requests.exceptions.ConnectionError:
+                last_error = "无法连接到AI服务"
+                if attempt < max_retries:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+                return f"错误: {last_error}，请确保AI服务已启动"
+            except requests.exceptions.Timeout:
+                last_error = f"AI服务响应超时(5分钟)"
+                if attempt < max_retries:
+                    import time
+                    time.sleep(2 ** attempt)
+                    print(f"第{attempt+1}次超时，重试中...")
+                    continue
+                return f"错误: {last_error}，文件数量可能过多或网络较慢，建议减少文件数量重试"
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+                return f"错误: {str(e)}"
+
+        return f"错误: {last_error}"
 
     def _rule_chat(self, user_prompt: str) -> str:
         """
