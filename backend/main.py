@@ -10,7 +10,42 @@ import json
 import shutil
 import threading
 import asyncio
+import logging
 from datetime import datetime
+
+# 配置日志
+log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f'ai_response_{datetime.now().strftime("%Y%m%d")}.log')
+
+# 配置日志记录器
+logger = logging.getLogger('ai_response_logger')
+logger.setLevel(logging.INFO)
+
+# 创建文件处理器
+file_handler = logging.FileHandler(log_file, encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+
+# 设置日志格式
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+# 添加处理器到记录器
+if not logger.handlers:
+    logger.addHandler(file_handler)
+
+def log_ai_response(provider: str, model: str, prompt: str, response: str, success: bool, error: str = None):
+    """记录AI响应到日志文件"""
+    log_entry = {
+        'timestamp': datetime.now().isoformat(),
+        'provider': provider,
+        'model': model,
+        'prompt': prompt[:500] + '...' if len(prompt) > 500 else prompt,
+        'response': response[:1000] + '...' if len(response) > 1000 else response,
+        'success': success,
+        'error': error
+    }
+    logger.info(json.dumps(log_entry, ensure_ascii=False))
 
 from database import engine, SessionLocal, Base, FileEntry, ScanRecord
 from scanner import (
@@ -43,6 +78,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def _fix_missing_keys(text: str) -> str:
+    """修复缺失键名的问题，如 {"value", "key": "val"} -> {"name": "value", "key": "val"}"""
+    text = re.sub(r'\{\s*"([^"]+)"\s*,\s*"([^"]+)"\s*:', r'{"name": "\1", "\2":', text)
+    return text
+
+def _fix_placeholders(text: str) -> str:
+    """修复模板占位符，如 "文件夹名" -> "未分类文件夹""" 
+    text = text.replace('"文件夹名"', '"未分类文件夹"')
+    text = text.replace('"文件名"', '"未知文件"')
+    text = text.replace('"文件ID"', '"0"')
+    text = text.replace('"数字ID"', '"0"')
+    return text
+
 def _sanitize_json(text: str) -> str:
     """修复本地模型常见的JSON格式问题"""
     text = text.replace('"', '"').replace('"', '"')
@@ -50,6 +98,8 @@ def _sanitize_json(text: str) -> str:
     text = text.replace('，', ',').replace('：', ':').replace('【', '[').replace('】', ']')
     text = text.replace('{', '{').replace('}', '}')
     text = text.replace('（', '(').replace('）', ')')
+    text = _fix_missing_keys(text)
+    text = _fix_placeholders(text)
     return text
 
 def _fix_json_brackets(text: str) -> str:
@@ -124,11 +174,35 @@ def _extract_json_object(text: str):
 
 def _try_fix_json(text: str) -> str:
     """尝试修复不完整的JSON"""
-    text = _sanitize_json(text)
-    text = _fix_json_brackets(text)
+    # 移除解释文字
+    text = text.strip()
+    if '以下是根据您提供的清单整理的' in text:
+        text = text.split('JSON 格式结构:')[-1].strip()
+    elif '根据您提供的文件分类结果' in text:
+        text = text.split('JSON:')[-1].strip()
+    
+    # 修复代码块包裹
+    if '```' in text:
+        lines = text.split('\n')
+        code_start = -1
+        code_end = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith('```'):
+                if code_start == -1:
+                    code_start = i
+                else:
+                    code_end = i
+                    break
+        if code_start >= 0:
+            if code_end >= 0:
+                text = '\n'.join(lines[code_start+1:code_end])
+            else:
+                text = '\n'.join(lines[code_start+1:])
+    
+    # 修复JSON格式
     text = text.strip()
     if not text.startswith('{') and not text.startswith('['):
-        if text.startswith('json') or text.startswith('JSON') or text.startswith('```'):
+        if text.startswith('json') or text.startswith('JSON'):
             lines = text.split('\n')
             for idx, line in enumerate(lines):
                 line = line.strip()
@@ -148,6 +222,10 @@ def _try_fix_json(text: str) -> str:
                 idx = text.find('[')
                 if idx >= 0:
                     text = text[idx:]
+    
+    # 应用其他修复
+    text = _sanitize_json(text)
+    text = _fix_json_brackets(text)
     
     # 修复截断的JSON：补全未闭合的括号和引号
     if text:
@@ -206,7 +284,7 @@ def _close_brackets(stack) -> str:
             result.append(']')
     return ''.join(result)
 
-def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
+def _ai_organize_chunked(files, learned_rules, include_content, ai_provider, provider, model):
     """
     分批处理大量文件的AI整理
     """
@@ -235,11 +313,22 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
 
 {prompt_builder.format_file_list(batch_data)}
 
-只返回一个JSON数组，格式：[{{"name":"文件名","folder":"建议的文件夹名"}}]"""
+重要规则：
+1. 只返回一个JSON数组，不要任何解释文字
+2. 确保JSON格式完整，不要用代码块包裹
+3. 每个对象必须包含"name"和"folder"字段
+4. folder字段必须是具体的分类名称，不能用"文件夹名"等占位符
+
+格式：[{{"name":"文件名","folder":"建议的文件夹名"}}]"""
 
         response = ai_provider.chat(system_prompt, user_prompt)
+        
+        # 记录AI响应
+        log_ai_response(provider, model, user_prompt, response, success=False)
+
         if response.startswith("错误:"):
             print(f"第{batch_idx+1}批处理失败: {response}")
+            log_ai_response(provider, model, user_prompt, response, success=False, error=response)
             continue
 
         try:
@@ -249,8 +338,10 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
                     if isinstance(c, dict) and 'name' in c and 'folder' in c:
                         all_classifications[c['name']] = c['folder']
                 print(f"第{batch_idx+1}批处理成功，分类{len(classifications)}个文件")
+                log_ai_response(provider, model, user_prompt, response, success=True)
                 continue
-        except:
+        except Exception as e:
+            log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
             pass
 
         json_str = _extract_json_array(response)
@@ -262,9 +353,11 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
                         if isinstance(c, dict) and 'name' in c and 'folder' in c:
                             all_classifications[c['name']] = c['folder']
                     print(f"第{batch_idx+1}批提取成功，分类{len(classifications)}个文件")
+                    log_ai_response(provider, model, user_prompt, response, success=True)
                     continue
             except Exception as e:
                 print(f"第{batch_idx+1}批解析失败: {e}")
+                log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
 
         json_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', response)
         if json_match:
@@ -275,52 +368,129 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
                         if isinstance(c, dict) and 'name' in c and 'folder' in c:
                             all_classifications[c['name']] = c['folder']
                     print(f"第{batch_idx+1}批正则提取成功，分类{len(classifications)}个文件")
+                    log_ai_response(provider, model, user_prompt, response, success=True)
                     continue
-            except:
+            except Exception as e:
+                log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
                 pass
 
         print(f"第{batch_idx+1}批解析失败，跳过。返回内容: {response[:150]}")
+        log_ai_response(provider, model, user_prompt, response, success=False, error="解析失败")
         continue
 
     if not all_classifications:
         return {"error": "AI分类失败，所有批次均未成功返回结果"}
 
-    file_list = "\n".join([f"{f.name} → {all_classifications.get(f.name, '未分类')}" for f in files])
+    file_list = "\n".join([f"{f.id}. {f.name} → {all_classifications.get(f.name, '未分类')}" for f in files])
 
-    final_prompt = f"""基于以下文件分类结果，生成最终的整理方案JSON：
+    final_prompt = f"""基于以下文件分类结果，生成最终的整理方案JSON。
 
+重要规则：
+1. 每个文件的id必须使用对应的数字ID（文件ID），不能用"文件ID"等占位符
+2. 每个文件夹名必须是具体的分类名称，不能用"文件夹名"、"具体文件夹名"等占位符
+3. 每个文件名必须是实际的文件名，不能用"文件名"等占位符
+4. 只返回JSON，不要任何解释文字，不要用代码块包裹
+5. 确保JSON格式完整，不要截断
+6. **必须生成至少一个文件夹**，不能为空的folders数组
+7. **所有文件都必须被分配到文件夹中**，不能遗漏任何文件
+8. **直接返回JSON对象**，格式为：{"folders":[{"name":"具体文件夹名","files":[{"id":数字ID,"name":"实际文件名"}]}]}
+
+输入格式：文件ID. 文件名 → 文件夹名
 {file_list}
 
-请返回JSON格式，只返回JSON不要其他内容：
-{{"folders":[{{"name":"文件夹名","files":[{{"id":文件ID,"name":"文件名"}}]}}]}}"""
+输出JSON格式：
+{{"folders":[{{"name":"具体文件夹名","files":[{{"id":数字ID,"name":"实际文件名"}}]}}]}}"""
 
     response = ai_provider.chat(system_prompt, final_prompt)
+    
+    # 记录AI响应
+    log_ai_response(provider, model, final_prompt, response, success=False)
+
     if response.startswith("错误:"):
+        log_ai_response(provider, model, final_prompt, response, success=False, error=response)
         return {"error": f"生成最终方案失败: {response}"}
+
+    def _fix_placeholders(plan):
+        """修复模板占位符，将'文件ID'等替换为实际ID"""
+        name_to_id = {f.name: f.id for f in files}
+        # 生成文件夹名称映射，确保每个文件夹有唯一的有意义名称
+        folder_counter = {}
+        
+        def get_unique_folder_name(base_name):
+            """生成唯一的文件夹名称"""
+            if base_name and base_name != '具体文件夹名' and base_name != '文件夹名':
+                return base_name
+            # 如果是占位符，生成基于文件内容的文件夹名
+            return '未分类文件'
+        
+        if isinstance(plan, dict):
+            if 'folders' in plan:
+                for folder in plan['folders']:
+                    if isinstance(folder, dict):
+                        # 修复文件夹名称
+                        folder_name = folder.get('name', '')
+                        folder['name'] = get_unique_folder_name(folder_name)
+                        
+                        # 修复文件ID
+                        if 'files' in folder:
+                            for file_entry in folder['files']:
+                                if isinstance(file_entry, dict):
+                                    file_id = file_entry.get('id')
+                                    file_name = file_entry.get('name', '')
+                                    if not isinstance(file_id, int) or str(file_id) == '文件ID' or str(file_id) == '数字ID' or file_id == 0:
+                                        file_entry['id'] = name_to_id.get(file_name, 0)
+                        
+                        # 修复子文件夹
+                        if 'subfolders' in folder:
+                            for sub in folder['subfolders']:
+                                if isinstance(sub, dict):
+                                    sub_name = sub.get('name', '')
+                                    sub['name'] = get_unique_folder_name(sub_name)
+                                    if 'files' in sub:
+                                        for file_entry in sub['files']:
+                                            if isinstance(file_entry, dict):
+                                                file_id = file_entry.get('id')
+                                                file_name = file_entry.get('name', '')
+                                                if not isinstance(file_id, int) or str(file_id) == '文件ID' or str(file_id) == '数字ID' or file_id == 0:
+                                                    file_entry['id'] = name_to_id.get(file_name, 0)
+        return plan
 
     try:
         plan = json.loads(response)
-        if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
-            return plan[0]
-        return plan
-    except:
+        if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0] and plan[0].get('folders') and len(plan[0].get('folders')) > 0:
+            result = _fix_placeholders(plan[0])
+            log_ai_response(provider, model, final_prompt, response, success=True)
+            return result
+        if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+            result = _fix_placeholders(plan)
+            log_ai_response(provider, model, final_prompt, response, success=True)
+            return result
+    except Exception as e:
+        log_ai_response(provider, model, final_prompt, response, success=False, error=str(e))
         pass
 
     json_str = _extract_json_object(response)
     if json_str:
         try:
             plan = json.loads(json_str)
-            return plan
+            if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                result = _fix_placeholders(plan)
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
         except Exception as e:
             print(f"提取JSON对象失败: {e}")
+            log_ai_response(provider, model, final_prompt, response, success=False, error=str(e))
 
     json_str = _extract_json_array(response)
     if json_str:
         try:
             parsed = json.loads(json_str)
-            if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict) and 'folders' in parsed[0]:
-                return parsed[0]
-        except:
+            if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict) and 'folders' in parsed[0] and parsed[0].get('folders') and len(parsed[0].get('folders')) > 0:
+                result = _fix_placeholders(parsed[0])
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+        except Exception as e:
+            log_ai_response(provider, model, final_prompt, response, success=False, error=str(e))
             pass
 
     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
@@ -329,23 +499,44 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
         content = _try_fix_json(content)
         try:
             plan = json.loads(content)
-            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
-                return plan[0]
-            return plan
-        except:
+            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0] and plan[0].get('folders') and len(plan[0].get('folders')) > 0:
+                result = _fix_placeholders(plan[0])
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+            if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                result = _fix_placeholders(plan)
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+        except Exception as e:
+            log_ai_response(provider, model, final_prompt, response, success=False, error=str(e))
             pass
 
     fixed = _try_fix_json(response)
     if fixed:
         try:
             plan = json.loads(fixed)
-            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
-                return plan[0]
-            return plan
-        except:
+            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0] and plan[0].get('folders') and len(plan[0].get('folders')) > 0:
+                result = _fix_placeholders(plan[0])
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+            if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                result = _fix_placeholders(plan)
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+            # 处理AI返回数组直接作为folders的情况
+            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'name' in plan[0] and 'files' in plan[0]:
+                result = {"folders": plan}
+                result = _fix_placeholders(result)
+                log_ai_response(provider, model, final_prompt, response, success=True)
+                return result
+        except Exception as e:
+            print(f"最终修复解析失败: {e}")
+            log_ai_response(provider, model, final_prompt, response, success=False, error=str(e))
             pass
 
-    return {"error": f"AI返回格式错误。实际返回: {response[:300]}"}
+    error_msg = f"AI返回格式错误。实际返回: {response[:300]}"
+    log_ai_response(provider, model, final_prompt, response, success=False, error=error_msg)
+    return {"error": error_msg}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -1153,7 +1344,7 @@ async def generate_organize_plan(request: dict):
 
         MAX_FILES_FOR_AI = 60
         if len(files) > MAX_FILES_FOR_AI:
-            return _ai_organize_chunked(files, learned_rules, include_content, ai_provider)
+            return _ai_organize_chunked(files, learned_rules, include_content, ai_provider, provider, model)
 
         file_data = []
         for f in files:
@@ -1179,75 +1370,91 @@ async def generate_organize_plan(request: dict):
 
         response = ai_provider.chat(system_prompt, user_prompt)
 
+        # 记录AI响应
+        log_ai_response(provider, model, user_prompt, response, success=False)
+
         if response.startswith("错误:"):
+            log_ai_response(provider, model, user_prompt, response, success=False, error=response)
             return {"error": response}
 
-        import json
-        import re
         try:
             plan = json.loads(response)
-        except json.JSONDecodeError:
-            json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*\})\s*```', response)
-            if json_match:
-                plan_str = json_match.group(1)
-            else:
-                json_match = re.search(r'\{[\s\S]*\}', response)
-                if json_match:
-                    plan_str = json_match.group(0)
-                else:
-                    return {"error": f"AI返回格式错误: 未找到JSON。实际返回内容前200字符: {response[:200]}", "raw": response[:1000]}
+        except Exception as e:
+            log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
+            pass
+        else:
+            if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                if learn_mode:
+                    for folder in plan.get('folders', []):
+                        rule_learner.add_rule(
+                            pattern=folder.get('name', ''),
+                            action=f"移动到 {folder['name']}",
+                            file_count=len(folder.get('files', []))
+                        )
+                log_ai_response(provider, model, user_prompt, response, success=True)
+                return plan
+
+        json_str = _extract_json_object(response)
+        if json_str:
             try:
-                plan = json.loads(plan_str)
-            except json.JSONDecodeError:
-                brace_count = 0
-                quote_count = 0
-                in_string = False
-                escape_next = False
-                end_idx = len(plan_str)
-                for i, c in enumerate(plan_str):
-                    if escape_next:
-                        escape_next = False
-                        continue
-                    if c == '\\' and in_string:
-                        escape_next = True
-                        continue
-                    if c == '"' and not escape_next:
-                        quote_count += 1
-                        in_string = not in_string
-                    elif not in_string:
-                        if c == '{':
-                            brace_count += 1
-                        elif c == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                end_idx = i + 1
-                                break
-                plan_str = plan_str[:end_idx]
-                try:
-                    plan = json.loads(plan_str)
-                except json.JSONDecodeError as e:
-                    last_valid_pos = e.pos
-                    while last_valid_pos > 0:
-                        try:
-                            test_str = plan_str[:last_valid_pos] + '"]}]}'
-                            plan = json.loads(test_str)
-                            break
-                        except:
-                            last_valid_pos -= 1
-                    else:
-                        return {"error": f"AI返回格式被截断(位置:{e.pos})，内容片段: {plan_str[max(0,e.pos-50):e.pos+50]}", "raw": response[:1000]}
-            else:
-                return {"error": "AI返回格式错误: 未找到JSON", "raw": response[:500]}
+                plan = json.loads(json_str)
+                if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                    if learn_mode:
+                        for folder in plan.get('folders', []):
+                            rule_learner.add_rule(
+                                pattern=folder.get('name', ''),
+                                action=f"移动到 {folder['name']}",
+                                file_count=len(folder.get('files', []))
+                            )
+                    log_ai_response(provider, model, user_prompt, response, success=True)
+                    return plan
+            except Exception as e:
+                log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
+                pass
 
-        if learn_mode:
-            for folder in plan.get('folders', []):
-                rule_learner.add_rule(
-                    pattern=folder.get('name', ''),
-                    action=f"移动到 {folder['name']}",
-                    file_count=len(folder.get('files', []))
-                )
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
+        if json_match:
+            content = json_match.group(1).strip()
+            content = _try_fix_json(content)
+            try:
+                plan = json.loads(content)
+                if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                    if learn_mode:
+                        for folder in plan.get('folders', []):
+                            rule_learner.add_rule(
+                                pattern=folder.get('name', ''),
+                                action=f"移动到 {folder['name']}",
+                                file_count=len(folder.get('files', []))
+                            )
+                    log_ai_response(provider, model, user_prompt, response, success=True)
+                    return plan
+            except Exception as e:
+                log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
+                pass
 
-        return plan
+        fixed = _try_fix_json(response)
+        if fixed:
+            try:
+                plan = json.loads(fixed)
+                if isinstance(plan, dict) and 'folders' in plan and plan.get('folders') and len(plan.get('folders')) > 0:
+                    if learn_mode:
+                        for folder in plan.get('folders', []):
+                            rule_learner.add_rule(
+                                pattern=folder.get('name', ''),
+                                action=f"移动到 {folder['name']}",
+                                file_count=len(folder.get('files', []))
+                            )
+                    print(f"AI整理方案生成成功: {len(plan.get('folders', []))}个文件夹")
+                    log_ai_response(provider, model, user_prompt, response, success=True)
+                    return plan
+            except Exception as e:
+                print(f"最终修复解析失败: {e}")
+                log_ai_response(provider, model, user_prompt, response, success=False, error=str(e))
+                pass
+
+        error_msg = f"AI返回格式错误。实际返回: {response[:300]}"
+        log_ai_response(provider, model, user_prompt, response, success=False, error=error_msg)
+        return {"error": error_msg}
 
     except Exception as e:
         return {"error": f"服务器错误: {str(e)}"}

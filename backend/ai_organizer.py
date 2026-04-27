@@ -67,7 +67,15 @@ class OrganizePromptBuilder:
 - **输出简洁！文件夹≤10个，每个files数组精简**
 - 只返回JSON，不要解释
 - 分析所有文件，不遗漏
-- 文件>30个：优先按主题/项目分类，次要按类型分类"""
+- 文件>30个：优先按主题/项目分类，次要按类型分类
+- **重要要求**：
+  1. 文件夹名必须是具体的分类名称，不要使用"文件夹名"等占位符
+  2. 文件名必须是实际的文件名，不要使用"文件名"等占位符
+  3. 文件ID必须是实际的数字ID，不要使用"文件ID"等占位符
+  4. 不要用代码块包裹JSON，直接返回JSON
+  5. 确保JSON格式完整，不要截断
+  6. **必须生成至少一个文件夹**，不能为空的folders数组
+  7. **所有文件都必须被分配到文件夹中**，不能遗漏任何文件"""
 
     def build_user_prompt(self, files: List[Dict], learned_rules: List[Dict] = None, include_content: bool = False) -> str:
         rules_text = ""

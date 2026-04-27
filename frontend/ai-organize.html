@@ -555,6 +555,9 @@
 
                         if (data.error) {
                             alert('生成失败: ' + data.error);
+                        } else if (!data.folders || data.folders.length === 0) {
+                            alert('生成失败: AI返回的方案为空，请重试');
+                            console.error('AI返回的空方案:', data);
                         } else {
                             plan.value = data;
                             planGenerated.value = true;
