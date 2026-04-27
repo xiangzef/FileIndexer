@@ -300,6 +300,8 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
 
     try:
         plan = json.loads(response)
+        if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
+            return plan[0]
         return plan
     except:
         pass
@@ -312,12 +314,23 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
         except Exception as e:
             print(f"提取JSON对象失败: {e}")
 
+    json_str = _extract_json_array(response)
+    if json_str:
+        try:
+            parsed = json.loads(json_str)
+            if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict) and 'folders' in parsed[0]:
+                return parsed[0]
+        except:
+            pass
+
     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
     if json_match:
         content = json_match.group(1).strip()
         content = _try_fix_json(content)
         try:
             plan = json.loads(content)
+            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
+                return plan[0]
             return plan
         except:
             pass
@@ -326,6 +339,8 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider):
     if fixed:
         try:
             plan = json.loads(fixed)
+            if isinstance(plan, list) and len(plan) > 0 and isinstance(plan[0], dict) and 'folders' in plan[0]:
+                return plan[0]
             return plan
         except:
             pass
