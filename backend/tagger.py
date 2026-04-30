@@ -272,6 +272,155 @@ class AITagger:
 
         return result
 
+    def is_non_work_file(self, file_name: str) -> bool:
+        """检测是否是非工作相关文件（小说、素材等）"""
+        import re
+        name_lower = file_name.lower()
+
+        # 非工作文件特征模式
+        non_work_patterns = [
+            r'同人小说', r'小说', r'全集', r'套装', r'合集',
+            r'\(z.?library', r'z.?lib\.sk', r'lib\.sk',
+            r'epub$', r'mobi$', r'azw', r'电子书',
+            r'作者：', r'著$', r'文集',
+            r'素材[0-9]?', r'图库', r'模板', r'背景',
+            r'音乐', r'歌曲', r'mp3$', r'wav$', r'flac$',
+            r'电影', r'视频', r'综艺', r'电视剧', r'mp4$', r'avi$', r'mkv$',
+            r'游戏', r'软件破解', r'注册机',
+        ]
+
+        for pattern in non_work_patterns:
+            if re.search(pattern, name_lower):
+                return True
+
+        return False
+
+    def generate_simple_tags(self, file_name: str, file_path: str) -> Dict[str, Any]:
+        """为非工作文件生成简单标签（不调用AI）"""
+        import re
+        tags = []
+
+        # 从文件名提取关键词
+        name_lower = file_name.lower()
+
+        # 文件类型标签
+        ext = os.path.splitext(file_name)[1].lower()
+        type_map = {
+            '.doc': ('Word文档', '类型'), '.docx': ('Word文档', '类型'),
+            '.pdf': ('PDF文档', '类型'), '.xls': ('Excel表格', '类型'),
+            '.xlsx': ('Excel表格', '类型'), '.ppt': ('PPT演示', '类型'),
+            '.pptx': ('PPT演示', '类型'), '.txt': ('文本', '类型'),
+            '.md': ('文本', '类型'), '.epub': ('电子书', '类型'),
+            '.mobi': ('电子书', '类型'), '.azw': ('电子书', '类型'),
+        }
+        if ext in type_map:
+            tags.append({'name': type_map[ext][0], 'category': type_map[ext][1], 'confidence': 1.0})
+
+        # 内容类型标签
+        if any(k in name_lower for k in ['小说', '同人', '全集', '套装', '合集']):
+            tags.append({'name': '文学', 'category': '主题', 'confidence': 0.9})
+        if any(k in name_lower for k in ['z-library', 'z-lib', 'lib.sk']):
+            tags.append({'name': '网络资源', 'category': '来源', 'confidence': 0.9})
+        if any(k in name_lower for k in ['素材', '图库', '模板', '背景']):
+            tags.append({'name': '素材', 'category': '主题', 'confidence': 0.9})
+        if any(k in name_lower for k in ['音乐', '歌曲']):
+            tags.append({'name': '音频', 'category': '类型', 'confidence': 0.9})
+        if any(k in name_lower for k in ['电影', '视频', '电视剧']):
+            tags.append({'name': '视频', 'category': '类型', 'confidence': 0.9})
+
+        # 从路径推断领域
+        path_tags = self.domain_generator.infer_from_path(file_path)
+        for pt in path_tags:
+            if not any(t['name'] == pt['name'] for t in tags):
+                tags.append(pt)
+
+        # 生成简单摘要
+        summary = file_name[:30] if len(file_name) > 30 else file_name
+
+        return {'tags': tags[:6], 'summary': summary}
+
+    def find_similar_file_tags(self, db, file_name: str) -> Optional[List[Dict]]:
+        """查找相似文件名的已有标签，用于复用"""
+        from database import FileEntry, FileTag, Tag
+
+        # 提取文件名核心词（去掉编号、扩展名、括号内容）
+        import re
+        name_cleaned = re.sub(r'[0-9]+', '', file_name.lower())
+        name_cleaned = re.sub(r'\([^)]*\)', '', name_cleaned)
+        name_cleaned = re.sub(r'素材[0-9]*', '素材', name_cleaned)
+        name_cleaned = os.path.splitext(name_cleaned)[0].strip()
+
+        if len(name_cleaned) < 3:
+            return None
+
+        # 查找已有标签的文件
+        files_with_tags = db.query(FileEntry).filter(
+            FileEntry.tag_status == 'ready'
+        ).all()
+
+        for f in files_with_tags:
+            f_cleaned = re.sub(r'[0-9]+', '', f.name.lower())
+            f_cleaned = re.sub(r'\([^)]*\)', '', f_cleaned)
+            f_cleaned = re.sub(r'素材[0-9]*', '素材', f_cleaned)
+            f_cleaned = os.path.splitext(f_cleaned)[0].strip()
+
+            # 计算相似度（简单匹配）
+            if name_cleaned == f_cleaned or name_cleaned in f_cleaned or f_cleaned in name_cleaned:
+                # 找到相似文件，获取其标签
+                file_tags = db.query(FileTag).filter(FileTag.file_id == f.id).all()
+                if file_tags:
+                    tags = []
+                    for ft in file_tags:
+                        tag = db.query(Tag).filter(Tag.id == ft.tag_id).first()
+                        if tag:
+                            tags.append({
+                                'name': tag.name,
+                                'category': tag.category,
+                                'confidence': ft.confidence * 0.9  # 复用标签降低置信度
+                            })
+                    if tags:
+                        return tags
+
+        return None
+
+    def apply_tags_from_similar(self, db, file_entry, tags: List[Dict]) -> bool:
+        """复用相似文件的标签到当前文件"""
+        from database import Tag, FileTag
+
+        for tag_info in tags:
+            tag_name = tag_info.get('name', '').strip()
+            if not tag_name:
+                continue
+
+            category = tag_info.get('category', '其他')
+            confidence = tag_info.get('confidence', 0.8)
+
+            existing_tag = db.query(Tag).filter(Tag.name == tag_name).first()
+            if not existing_tag:
+                existing_tag = Tag(name=tag_name, category=category, usage_count=0)
+                db.add(existing_tag)
+                db.flush()
+
+            existing_tag.usage_count += 1
+
+            existing_file_tag = db.query(FileTag).filter(
+                FileTag.file_id == file_entry.id,
+                FileTag.tag_id == existing_tag.id
+            ).first()
+
+            if not existing_file_tag:
+                file_tag = FileTag(
+                    file_id=file_entry.id,
+                    tag_id=existing_tag.id,
+                    confidence=confidence,
+                    source='reuse'
+                )
+                db.add(file_tag)
+
+        file_entry.tag_status = 'ready'
+        db.commit()
+        return True
+
     def _extract_json(self, text: str) -> Optional[str]:
         """从文本中提取JSON"""
         text = text.strip()

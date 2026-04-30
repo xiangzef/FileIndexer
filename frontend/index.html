@@ -192,6 +192,11 @@
                         <option value="suspended">已挂起</option>
                         <option value="unavailable">不可用</option>
                     </select>
+                    <select v-model="filterTag" @change="loadFiles" style="padding:12px;border:1px solid #ddd;border-radius:8px;" title="按标签状态筛选">
+                        <option :value="null">全部标签</option>
+                        <option value="ready">已打标签</option>
+                        <option value="pending">未打标签</option>
+                    </select>
                     <div class="checkbox-dropdown" style="position:relative;">
                         <button class="btn btn-secondary" @click="showTypeDropdown = !showTypeDropdown" style="min-width:120px;display:flex;align-items:center;gap:5px;">
                             {{ selectedTypes.length === 0 ? '全部类型' : '已选' + selectedTypes.length + '类' }}
@@ -234,12 +239,14 @@
                             <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" :title="file.path">{{ file.path }}</td>
                             <td>{{ formatSize(file.size) }}</td>
                             <td>{{ file.extension }}</td>
-                            <td>
-                                <span v-if="file.tag_status === 'ready'" class="tag-count" @click="showFileTags(file)" title="点击查看标签">
-                                    {{ file.tag_count || '有' }}
-                                </span>
-                                <span v-else-if="file.tag_status === 'pending'" class="tag-pending">待标记</span>
-                                <span v-else class="tag-none">-</span>
+                            <td @click="showFileTags(file)" style="cursor:pointer;max-width:250px;">
+                                <div v-if="file.tag_status === 'ready'" style="display:flex;flex-wrap:wrap;gap:3px;">
+                                    <span style="padding:2px 6px;background:#667eea;color:white;border-radius:10px;font-size:11px;" title="点击查看全部标签">
+                                        {{ file.tag_count }}个标签
+                                    </span>
+                                </div>
+                                <span v-else-if="file.tag_status === 'pending'" style="padding:2px 6px;background:#fff3cd;color:#856404;border-radius:10px;font-size:11px;">待标记</span>
+                                <span v-else style="color:#999;">-</span>
                             </td>
                             <td>
                                 <span class="status" :class="getStatusClass(file)">
@@ -471,6 +478,7 @@
                 const aiArchiving = ref(false);
                 const scanRecords = ref([]);
                 const filterStatus = ref(null);
+                const filterTag = ref(null);
                 const filterType = ref(null);
                 const selectedTypes = ref([]);
                 const showTypeDropdown = ref(false);
@@ -609,8 +617,11 @@
                                             aiStatus.value = '打标签完成';
                                             aiProgress.value = 100;
                                             tagResult.value = `成功处理 ${data.success} / ${data.total} 个文件`;
+                                            loadFiles(); // 刷新文件列表显示最新标签
                                         } else if (data.type === 'error') {
                                             tagResult.value = '打标签失败: ' + data.message;
+                                        } else if (data.type === 'info') {
+                                            aiStatus.value = data.message;
                                         }
                                     } catch (e) {
                                         console.error('解析进度失败:', e);
@@ -738,6 +749,7 @@
                     if (filterDuplicate.value !== null) params.append('is_duplicate', filterDuplicate.value);
                     if (selectedExt.value) params.append('extension', selectedExt.value);
                     if (filterStatus.value) params.append('status', filterStatus.value);
+                    if (filterTag.value) params.append('tag_status', filterTag.value);
                     if (selectedTypes.value.length > 0) params.append('file_types', JSON.stringify(selectedTypes.value));
                     try {
                         const res = await fetch('/files/all-ids?' + params);
@@ -932,6 +944,7 @@
                     if (filterDuplicate.value !== null) params.append('is_duplicate', filterDuplicate.value);
                     if (selectedExt.value) params.append('extension', selectedExt.value);
                     if (filterStatus.value) params.append('status', filterStatus.value);
+                    if (filterTag.value) params.append('tag_status', filterTag.value);
                     if (selectedTypes.value.length > 0) {
                         params.append('file_types', JSON.stringify(selectedTypes.value));
                     }
@@ -1191,7 +1204,7 @@
                     scanPath, scanHistory, scanning, computing, deduplicating, renaming,
                     scanProgress, scanStatus, files, selectedFiles,
                     isPageAllSelected, updatePageAllState, togglePageAll,
-                    searchKeyword, filterDuplicate, filterStatus, selectedExt,
+                    searchKeyword, filterDuplicate, filterStatus, filterTag, selectedExt,
                     selectedTypes, showTypeDropdown, allTypes, toggleTypeFilter,
                     currentPage, pageSize, totalFiles, totalPages,
                     logs, stats,

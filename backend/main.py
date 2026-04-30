@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy import func as sql_func
 import os
 import re
 import json
@@ -726,6 +727,7 @@ async def get_files(
     is_duplicate: bool = None,
     keyword: str = None,
     status: str = None,
+    tag_status: str = None,
     file_type: str = None,
     file_types: str = None
 ):
@@ -740,6 +742,8 @@ async def get_files(
         query = query.filter(FileEntry.name.contains(keyword))
     if status:
         query = query.filter(FileEntry.status == status)
+    if tag_status:
+        query = query.filter(FileEntry.tag_status == tag_status)
     if file_type:
         type_map = {
             'doc': ['.doc', '.docx', '.wps', '.wpt'],
@@ -779,6 +783,16 @@ async def get_files(
 
     duplicates_count = db.query(FileEntry).filter(FileEntry.is_duplicate == True).count()
 
+    # 预加载tag_count
+    file_ids = [e.id for e in items]
+    tag_counts = {}
+    if file_ids:
+        from database import FileTag
+        tag_count_rows = db.query(FileTag.file_id, sql_func.count(FileTag.id)).filter(
+            FileTag.file_id.in_(file_ids)
+        ).group_by(FileTag.file_id).all()
+        tag_counts = {fid: count for fid, count in tag_count_rows}
+
     db.close()
 
     return {
@@ -800,6 +814,7 @@ async def get_files(
             "status": e.status,
             "source_path": e.source_path,
             "tag_status": e.tag_status,
+            "tag_count": tag_counts.get(e.id, 0),
             "content_summary": e.content_summary
         } for e in items]
     }
@@ -810,6 +825,7 @@ async def get_all_file_ids(
     is_duplicate: bool = None,
     keyword: str = None,
     status: str = None,
+    tag_status: str = None,
     file_types: str = None
 ):
     db = SessionLocal()
@@ -825,6 +841,8 @@ async def get_all_file_ids(
         query = query.filter(FileEntry.status == status)
     else:
         query = query.filter(FileEntry.status != 'suspended')
+    if tag_status:
+        query = query.filter(FileEntry.tag_status == tag_status)
     if file_types:
         import json
         try:
@@ -1623,35 +1641,51 @@ async def batch_generate_tags(request: dict):
                 yield _send_sse({"type": "done", "message": "没有文件需要处理"})
                 return
 
-            # 批量处理：每批10个文件，减少GPU调度次数
-            BATCH_SIZE = 10
             success_count = 0
 
-            for batch_start in range(0, total, BATCH_SIZE):
-                batch_end = min(batch_start + BATCH_SIZE, total)
-                batch_files = all_files[batch_start:batch_end]
-
+            # 逐文件处理，实时更新进度
+            for idx, file_entry in enumerate(all_files):
                 yield _send_sse({
                     "type": "progress",
-                    "current": batch_end,
+                    "current": idx + 1,
                     "total": total,
-                    "file_name": f"批量处理中 ({batch_end}/{total})",
-                    "percentage": int(batch_end * 100 / total)
+                    "file_name": file_entry.name,
+                    "percentage": int((idx + 1) * 100 / total)
                 })
 
-                # 批量调用AI：一次处理多个文件，减少GPU调度开销
-                batch_results = await asyncio.to_thread(
-                    tagger.batch_generate_tags,
-                    [{"id": f.id, "name": f.name, "path": f.path} for f in batch_files]
-                )
+                # 检查是否是非工作相关文件（小说、素材等）
+                is_non_work = tagger.is_non_work_file(file_entry.name)
+                if is_non_work:
+                    # 非工作文件：给简单标签，不调用AI
+                    simple_tags = tagger.generate_simple_tags(file_entry.name, file_entry.path)
+                    save_tags_to_db(db, file_entry.id, simple_tags, source='rule')
+                    success_count += 1
+                    yield _send_sse({
+                        "type": "info",
+                        "message": f"快速标记（非工作文件）: {file_entry.name}"
+                    })
+                    continue
 
-                for file_entry, result in zip(batch_files, batch_results):
-                    if result and not result.get("error"):
-                        save_tags_to_db(db, file_entry.id, result, source='ai')
-                        success_count += 1
-                    else:
-                        file_entry.tag_status = 'failed'
-                        db.commit()
+                # 检查是否有相似文件已打标签（复用标签）
+                similar_tags = tagger.find_similar_file_tags(db, file_entry.name)
+                if similar_tags:
+                    # 复用相似文件的标签
+                    tagger.apply_tags_from_similar(db, file_entry, similar_tags)
+                    success_count += 1
+                    yield _send_sse({
+                        "type": "info",
+                        "message": f"复用标签: {file_entry.name}"
+                    })
+                    continue
+
+                # 正常AI打标签
+                result = await asyncio.to_thread(tagger.generate_tags, file_entry.name, file_entry.path)
+                if result and not result.get("error"):
+                    save_tags_to_db(db, file_entry.id, result, source='ai')
+                    success_count += 1
+                else:
+                    file_entry.tag_status = 'failed'
+                    db.commit()
 
             yield _send_sse({
                 "type": "done",
