@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>素材搜索 - FileIndexer</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.prod.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .header p { font-size: 14px; opacity: 0.9; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        .search-box {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .search-input-wrapper {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        .search-input:focus { outline: none; border-color: #667eea; }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5568d3; }
+        .btn-secondary { background: #e9ecef; color: #495057; }
+        .btn-secondary:hover { background: #dee2e6; }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .filter-group label { font-size: 14px; color: #666; }
+
+        .filter-select {
+            padding: 8px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .tag-filter {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .tag-filter-label { font-size: 14px; color: #666; margin-right: 5px; }
+
+        .tag-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            background: #e9ecef;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tag-chip:hover { background: #dee2e6; }
+        .tag-chip.selected { background: #667eea; color: white; }
+        .tag-chip.ai-tag { border-left: 3px solid #667eea; }
+        .tag-chip.manual-tag { border-left: 3px solid #28a745; }
+        .tag-chip .remove {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        .tag-chip .remove:hover { background: rgba(0,0,0,0.2); }
+
+        .results-info {
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 10px;
+            padding: 18px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .result-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .result-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            background: #667eea;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .file-info { flex: 1; min-width: 0; }
+        .file-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+            word-break: break-all;
+        }
+        .file-path {
+            font-size: 13px;
+            color: #999;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .score-badge {
+            background: #667eea;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .result-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .result-summary {
+            font-size: 14px;
+            color: #666;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 13px;
+            border-radius: 6px;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #e9ecef;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pagination button.active { background: #667eea; color: white; border-color: #667eea; }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        .empty-state .icon { font-size: 60px; margin-bottom: 15px; }
+        .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #666; }
+        .empty-state p { font-size: 14px; }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 5px;
+            background: #f8f9fa;
+            padding: 5px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .nav-tab {
+            padding: 10px 20px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+        }
+        .nav-tab.active { background: white; color: #667eea; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .nav-tab:hover:not(.active) { background: rgba(255,255,255,0.5); }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h3 { font-size: 18px; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+
+        .tag-section { margin-bottom: 15px; }
+        .tag-section-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .tag-section-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .tag-input-wrapper {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .tag-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .suggestions {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1>素材搜索</h1>
+            <p>通过标签和语义快速找到所需素材</p>
+        </div>
+
+        <div class="container">
+            <div class="nav-tabs">
+                <button class="nav-tab" :class="{active: currentTab === 'search'}" @click="currentTab = 'search'">搜索</button>
+                <button class="nav-tab" :class="{active: currentTab === 'tags'}" @click="currentTab = 'tags'; loadAllTags()">标签管理</button>
+            </div>
+
+            <!-- 搜索页面 -->
+            <div v-if="currentTab === 'search'">
+                <div class="search-box">
+                    <div class="search-input-wrapper">
+                        <input type="text" class="search-input" v-model="searchQuery"
+                               placeholder="输入关键词搜索，如：党建 工会 项目 财务..."
+                               @keyup.enter="doSearch">
+                        <button class="btn btn-primary" @click="doSearch">搜索</button>
+                    </div>
+
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label>文件类型：</label>
+                            <select class="filter-select" v-model="selectedType" @change="doSearch">
+                                <option value="">全部</option>
+                                <option value="doc">Word</option>
+                                <option value="pdf">PDF</option>
+                                <option value="xls">Excel</option>
+                                <option value="ppt">PPT</option>
+                                <option value="img">图片</option>
+                                <option value="txt">文本</option>
+                            </select>
+                        </div>
+
+                        <div class="tag-filter">
+                            <span class="tag-filter-label">标签筛选：</span>
+                            <span v-for="tag in selectedTags" :key="tag"
+                                  class="tag-chip selected"
+                                  @click="toggleTag(tag)">{{ tag }}
+                            </span>
+                            <button class="btn btn-secondary btn-small" @click="showTagSelector = true">+ 添加标签</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="results-info" v-if="!loading && results.length > 0">
+                    找到 {{ total }} 个结果
+                </div>
+
+                <div v-if="loading" class="loading">搜索中...</div>
+
+                <div v-else-if="results.length === 0 && searched" class="empty-state">
+                    <div class="icon">🔍</div>
+                    <h3>未找到匹配的结果</h3>
+                    <p>尝试调整关键词或筛选条件</p>
+                </div>
+
+                <div v-else class="results-list">
+                    <div class="result-card" v-for="item in results" :key="item.file_id" @click="openFile(item)">
+                        <div class="result-header">
+                            <div class="file-icon">{{ getFileIcon(item.file.extension) }}</div>
+                            <div class="file-info">
+                                <div class="file-name">{{ item.file.name }}</div>
+                                <div class="file-path">{{ item.file.path }}</div>
+                            </div>
+                            <div class="score-badge" v-if="item.score">{{ Math.round(item.score * 100) }}%</div>
+                        </div>
+
+                        <div class="result-tags">
+                            <span v-for="tag in item.tags" :key="tag.id"
+                                  class="tag-chip" :class="tag.source === 'ai' ? 'ai-tag' : 'manual-tag'">
+                                {{ tag.name }}
+                                <span class="remove" v-if="tag.source === 'manual'" @click.stop="removeTag(item.file_id, tag.id)">×</span>
+                            </span>
+                            <span class="tag-chip" style="background: #f8f9fa; color: #999;" @click.stop="editTags(item)">+ 编辑</span>
+                        </div>
+
+                        <div class="result-summary" v-if="item.file.content_summary">
+                            {{ item.file.content_summary }}
+                        </div>
+
+                        <div class="result-actions" @click.stop>
+                            <button class="btn btn-secondary btn-small" @click="openInExplorer(item.file.path)">打开位置</button>
+                            <button class="btn btn-secondary btn-small" @click="copyPath(item.file.path)">复制路径</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pagination" v-if="totalPages > 1">
+                    <button @click="goPage(page - 1)" :disabled="page <= 1">上一页</button>
+                    <span>第 {{ page }} / {{ totalPages }} 页</span>
+                    <button @click="goPage(page + 1)" :disabled="page >= totalPages">下一页</button>
+                </div>
+            </div>
+
+            <!-- 标签管理页面 -->
+            <div v-if="currentTab === 'tags'">
+                <div class="search-box">
+                    <div class="tag-filter" style="flex-wrap: wrap;">
+                        <span class="tag-filter-label">热门标签：</span>
+                        <span v-for="tag in allTags" :key="tag.id"
+                              class="tag-chip" :class="{selected: selectedManageTags.includes(tag.name)}"
+                              @click="toggleManageTag(tag.name)">{{ tag.name }} ({{ tag.usage_count }})</span>
+                    </div>
+                </div>
+
+                <div class="results-info" v-if="manageResultTotal > 0">
+                    标签 "{{ selectedManageTags.join(', ') }}" 关联了 {{ manageResultTotal }} 个文件
+                </div>
+
+                <div v-if="manageLoading" class="loading">加载中...</div>
+
+                <div v-else-if="manageResults.length > 0" class="results-list">
+                    <div class="result-card" v-for="item in manageResults" :key="item.id" @click="openFile(item)">
+                        <div class="result-header">
+                            <div class="file-icon">{{ getFileIcon(item.extension) }}</div>
+                            <div class="file-info">
+                                <div class="file-name">{{ item.name }}</div>
+                                <div class="file-path">{{ item.path }}</div>
+                            </div>
+                        </div>
+                        <div class="result-tags">
+                            <span v-for="tag in item.tags" :key="tag.id"
+                                  class="tag-chip" :class="tag.source === 'ai' ? 'ai-tag' : 'manual-tag'">
+                                {{ tag.name }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="empty-state" v-else-if="allTags.length === 0">
+                    <div class="icon">🏷️</div>
+                    <h3>暂无标签</h3>
+                    <p>对文件进行AI标记后将自动生成标签</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签选择弹窗 -->
+        <div class="modal" v-if="showTagSelector" @click.self="showTagSelector = false">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>选择标签</h3>
+                    <button class="modal-close" @click="showTagSelector = false">&times;</button>
+                </div>
+                <div class="tag-filter" style="flex-wrap: wrap; gap: 8px;">
+                    <span v-for="tag in availableTags" :key="tag.id"
+                          class="tag-chip" :class="{selected: selectedTags.includes(tag.name)}"
+                          @click="toggleTag(tag.name)">{{ tag.name }}</span>
+                </div>
+                <div style="margin-top: 15px; text-align: right;">
+                    <button class="btn btn-primary" @click="showTagSelector = false; doSearch()">确定</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签编辑弹窗 -->
+        <div class="modal" v-if="editingFile" @click.self="editingFile = null">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>编辑标签 - {{ editingFile.name }}</h3>
+                    <button class="modal-close" @click="editingFile = null">&times;</button>
+                </div>
+
+                <div class="tag-section">
+                    <div class="tag-section-label">AI标签：</div>
+                    <div class="tag-section-tags">
+                        <span v-for="tag in editingFile.aiTags" :key="tag.id"
+                              class="tag-chip ai-tag">{{ tag.name }}</span>
+                        <span v-if="editingFile.aiTags.length === 0" style="color: #999; font-size: 13px;">暂无AI标签</span>
+                    </div>
+                </div>
+
+                <div class="tag-section">
+                    <div class="tag-section-label">手动标签：</div>
+                    <div class="tag-section-tags">
+                        <span v-for="tag in editingFile.manualTags" :key="tag.id"
+                              class="tag-chip manual-tag">{{ tag.name }}
+                            <span class="remove" @click="removeManualTag(tag.id)">×</span>
+                        </span>
+                    </div>
+                    <div class="tag-input-wrapper">
+                        <input type="text" class="tag-input" v-model="newManualTag"
+                               placeholder="输入新标签，回车添加" @keyup.enter="addManualTag">
+                    </div>
+                </div>
+
+                <div class="suggestions" v-if="tagSuggestions.length > 0">
+                    <div class="tag-section-label">建议标签：</div>
+                    <div class="tag-section-tags">
+                        <span v-for="s in tagSuggestions" :key="s"
+                              class="tag-chip" style="cursor: pointer;"
+                              @click="applySuggestion(s)">{{ s }}</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; text-align: right;">
+                    <button class="btn btn-secondary" @click="editingFile = null">取消</button>
+                    <button class="btn btn-primary" @click="saveFileTags">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const { createApp, ref, computed, watch } = Vue;
+
+    createApp({
+        setup() {
+            const API_BASE = 'http://127.0.0.1:56789';
+
+            const currentTab = ref('search');
+            const searchQuery = ref('');
+            const selectedType = ref('');
+            const selectedTags = ref([]);
+            const results = ref([]);
+            const total = ref(0);
+            const page = ref(1);
+            const pageSize = 20;
+            const loading = ref(false);
+            const searched = ref(false);
+
+            const allTags = ref([]);
+            const availableTags = ref([]);
+            const showTagSelector = ref(false);
+            const selectedManageTags = ref([]);
+            const manageResults = ref([]);
+            const manageResultTotal = ref(0);
+            const manageLoading = ref(false);
+
+            const editingFile = ref(null);
+            const newManualTag = ref('');
+            const tagSuggestions = ref([]);
+
+            const totalPages = computed(() => Math.ceil(total.value / pageSize));
+
+            async function loadAllTags() {
+                try {
+                    const res = await fetch(`${API_BASE}/tags`);
+                    const data = await res.json();
+                    allTags.value = data.tags || [];
+                    availableTags.value = data.tags || [];
+                } catch (e) {
+                    console.error('加载标签失败:', e);
+                }
+            }
+
+            async function doSearch() {
+                loading.value = true;
+                searched.value = true;
+
+                try {
+                    const params = new URLSearchParams({
+                        q: searchQuery.value,
+                        tags: selectedTags.value.join(','),
+                        page: page.value,
+                        page_size: pageSize
+                    });
+
+                    if (selectedType.value) {
+                        params.set('file_types', JSON.stringify([selectedType.value]));
+                    }
+
+                    const res = await fetch(`${API_BASE}/search?${params}`);
+                    const data = await res.json();
+
+                    results.value = data.results || [];
+                    total.value = data.total;
+                } catch (e) {
+                    console.error('搜索失败:', e);
+                } finally {
+                    loading.value = false;
+                }
+            }
+
+            function toggleTag(tag) {
+                const idx = selectedTags.value.indexOf(tag);
+                if (idx >= 0) {
+                    selectedTags.value.splice(idx, 1);
+                } else {
+                    selectedTags.value.push(tag);
+                }
+            }
+
+            function goPage(p) {
+                page.value = p;
+                doSearch();
+            }
+
+            function getFileIcon(ext) {
+                const icons = {
+                    '.pdf': '📄', '.doc': '📝', '.docx': '📝',
+                    '.xls': '📊', '.xlsx': '📊', '.csv': '📊',
+                    '.ppt': '📽️', '.pptx': '📽️',
+                    '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️',
+                    '.txt': '📃', '.md': '📃',
+                    '.zip': '📦', '.rar': '📦', '.7z': '📦'
+                };
+                return icons[ext?.toLowerCase()] || '📁';
+            }
+
+            function openFile(item) {
+                if (item.file && item.file.path) {
+                    window.open(`file://${item.file.path}`);
+                }
+            }
+
+            function openInExplorer(path) {
+                const dir = path.substring(0, path.lastIndexOf('\\'));
+                window.open(`file://${dir}`);
+            }
+
+            function copyPath(path) {
+                navigator.clipboard.writeText(path);
+            }
+
+            async function loadManageResults() {
+                if (selectedManageTags.value.length === 0) {
+                    manageResults.value = [];
+                    manageResultTotal.value = 0;
+                    return;
+                }
+
+                manageLoading.value = true;
+                try {
+                    const res = await fetch(`${API_BASE}/tags/files?tags=${selectedManageTags.value.join(',')}`);
+                    const data = await res.json();
+                    manageResults.value = data.files || [];
+                    manageResultTotal.value = data.total;
+                } catch (e) {
+                    console.error('加载失败:', e);
+                } finally {
+                    manageLoading.value = false;
+                }
+            }
+
+            function toggleManageTag(tag) {
+                const idx = selectedManageTags.value.indexOf(tag);
+                if (idx >= 0) {
+                    selectedManageTags.value.splice(idx, 1);
+                } else {
+                    selectedManageTags.value.push(tag);
+                }
+                loadManageResults();
+            }
+
+            async function editTags(item) {
+                try {
+                    const res = await fetch(`${API_BASE}/files/${item.file_id}/tags`);
+                    const data = await res.json();
+
+                    const aiTags = data.tags.filter(t => t.source === 'ai');
+                    const manualTags = data.tags.filter(t => t.source === 'manual');
+
+                    editingFile.value = {
+                        id: item.file_id,
+                        name: item.file.name,
+                        aiTags: aiTags,
+                        manualTags: manualTags
+                    };
+
+                    tagSuggestions.value = [];
+                } catch (e) {
+                    console.error('加载标签失败:', e);
+                }
+            }
+
+            function removeManualTag(tagId) {
+                if (!editingFile.value) return;
+                editingFile.value.manualTags = editingFile.value.manualTags.filter(t => t.id !== tagId);
+            }
+
+            function addManualTag() {
+                if (!newManualTag.value.trim() || !editingFile.value) return;
+
+                const exists = editingFile.value.manualTags.some(t => t.name === newManualTag.value.trim());
+                if (!exists) {
+                    editingFile.value.manualTags.push({
+                        id: 0,
+                        name: newManualTag.value.trim(),
+                        source: 'manual'
+                    });
+                }
+                newManualTag.value = '';
+            }
+
+            async function applySuggestion(tagName) {
+                if (!editingFile.value) return;
+                const exists = editingFile.value.manualTags.some(t => t.name === tagName) ||
+                              editingFile.value.aiTags.some(t => t.name === tagName);
+                if (!exists) {
+                    editingFile.value.manualTags.push({
+                        id: 0,
+                        name: tagName,
+                        source: 'manual'
+                    });
+                }
+            }
+
+            async function saveFileTags() {
+                if (!editingFile.value) return;
+
+                const addTags = editingFile.value.manualTags.map(t => ({ name: t.name }));
+                const removeTagIds = [];
+
+                try {
+                    await fetch(`${API_BASE}/files/${editingFile.value.id}/tags`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ add_tags: addTags, remove_tag_ids: removeTagIds })
+                    });
+
+                    editingFile.value = null;
+                    doSearch();
+                } catch (e) {
+                    console.error('保存失败:', e);
+                }
+            }
+
+            async function removeTag(fileId, tagId) {
+                try {
+                    await fetch(`${API_BASE}/files/${fileId}/tags/${tagId}`, { method: 'DELETE' });
+                    doSearch();
+                } catch (e) {
+                    console.error('删除标签失败:', e);
+                }
+            }
+
+            loadAllTags();
+
+            return {
+                currentTab, searchQuery, selectedType, selectedTags,
+                results, total, page, loading, searched, totalPages,
+                allTags, availableTags, showTagSelector,
+                selectedManageTags, manageResults, manageResultTotal, manageLoading,
+                editingFile, newManualTag, tagSuggestions,
+                doSearch, toggleTag, goPage, getFileIcon, openFile,
+                openInExplorer, copyPath, loadAllTags, toggleManageTag,
+                editTags, removeManualTag, addManualTag, applySuggestion, saveFileTags, removeTag
+            };
+        }
+    }).mount('#app');
+    </script>
+</body>
+</html>

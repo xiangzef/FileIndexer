@@ -47,7 +47,7 @@ def log_ai_response(provider: str, model: str, prompt: str, response: str, succe
     }
     logger.info(json.dumps(log_entry, ensure_ascii=False))
 
-from database import engine, SessionLocal, Base, FileEntry, ScanRecord
+from database import engine, SessionLocal, Base, FileEntry, ScanRecord, Tag, FileTag
 from scanner import (
     scan_directory, compute_md5_batch, find_duplicates,
     stop_scan, ALL_SUPPORTED, calculate_md5, SCAN_STOP_FLAG
@@ -67,6 +67,9 @@ from file_manager import (
     suspend_files_by_ids,
     restore_files_by_ids
 )
+from tagger import AITagger, save_tags_to_db, remove_tags_from_db
+from embedder import OllamaEmbedder, save_embedding_to_db
+from tag_search import TagSearchEngine, get_files_with_tags
 
 app = FastAPI(title="FileIndexer API", version="1.0.0")
 
@@ -569,13 +572,31 @@ async def get_supported_extensions():
     }
 
 @app.get("/ai/models")
-async def get_ai_models(provider: str = "ollama"):
-    from ai_provider import PROVIDER_CONFIGS
+async def get_ai_models(provider: str = "ollama", base_url: str = None):
+    from ai_provider import PROVIDER_CONFIGS, get_provider_models
+    import requests
+
     config = PROVIDER_CONFIGS.get(provider, {})
+    models = get_provider_models(provider)
+
+    default_model = config.get("default_model", "")
+
+    if provider == "ollama":
+        ollama_base = base_url or "http://localhost:11434"
+        try:
+            response = requests.get(f"{ollama_base}/api/tags", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+                if models and not default_model:
+                    default_model = models[0]
+        except Exception as e:
+            print(f"获取Ollama模型失败: {e}")
+
     return {
         "provider": provider,
-        "default_model": config.get("default_model", ""),
-        "models": config.get("models", [])
+        "default_model": default_model,
+        "models": models
     }
 
 @app.post("/scan")
@@ -777,7 +798,9 @@ async def get_files(
             "is_duplicate": e.is_duplicate,
             "duplicate_of_id": e.duplicate_of_id,
             "status": e.status,
-            "source_path": e.source_path
+            "source_path": e.source_path,
+            "tag_status": e.tag_status,
+            "content_summary": e.content_summary
         } for e in items]
     }
 
@@ -1555,6 +1578,390 @@ async def execute_organize_plan(request: dict):
         "success": True,
         "message": f"整理完成！已处理 {archived_count} 个文件",
         "details": results
+    }
+
+# ==================== 标签与搜索 API ====================
+
+@app.post("/ai/tag/batch")
+async def batch_generate_tags(request: dict):
+    """
+    批量为扫描记录下的文件生成AI标签
+    """
+    record_id = request.get("record_id")
+    file_ids = request.get("file_ids")
+    provider = request.get("provider", "ollama")
+    api_key = request.get("api_key")
+    model = request.get("model")
+    base_url = request.get("base_url")
+
+    if not record_id and not file_ids:
+        raise HTTPException(status_code=400, detail="必须提供record_id或file_ids")
+
+    db = SessionLocal()
+    ai_provider = get_ai_provider(provider, api_key, model, base_url)
+    tagger = AITagger(ai_provider)
+
+    async def generate():
+        try:
+            if file_ids:
+                if len(file_ids) > 500:
+                    all_files = []
+                    for i in range(0, len(file_ids), 500):
+                        batch = file_ids[i:i+500]
+                        batch_files = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+                        all_files.extend(batch_files)
+                else:
+                    all_files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+            else:
+                all_files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+
+            # 过滤掉已标记的文件，只处理tag_status != 'ready'的文件
+            all_files = [f for f in all_files if f.tag_status != 'ready']
+
+            total = len(all_files)
+            if total == 0:
+                yield _send_sse({"type": "done", "message": "没有文件需要处理"})
+                return
+
+            # 批量处理：每批10个文件，减少GPU调度次数
+            BATCH_SIZE = 10
+            success_count = 0
+
+            for batch_start in range(0, total, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, total)
+                batch_files = all_files[batch_start:batch_end]
+
+                yield _send_sse({
+                    "type": "progress",
+                    "current": batch_end,
+                    "total": total,
+                    "file_name": f"批量处理中 ({batch_end}/{total})",
+                    "percentage": int(batch_end * 100 / total)
+                })
+
+                # 批量调用AI：一次处理多个文件，减少GPU调度开销
+                batch_results = await asyncio.to_thread(
+                    tagger.batch_generate_tags,
+                    [{"id": f.id, "name": f.name, "path": f.path} for f in batch_files]
+                )
+
+                for file_entry, result in zip(batch_files, batch_results):
+                    if result and not result.get("error"):
+                        save_tags_to_db(db, file_entry.id, result, source='ai')
+                        success_count += 1
+                    else:
+                        file_entry.tag_status = 'failed'
+                        db.commit()
+
+            yield _send_sse({
+                "type": "done",
+                "total": total,
+                "success": success_count
+            })
+
+        except Exception as e:
+            yield _send_sse({"type": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "X-Accel-Buffering": "no"
+    })
+
+
+@app.post("/ai/embed/batch")
+async def batch_generate_embeddings(request: dict):
+    """
+    批量为文件生成Embedding向量
+    """
+    record_id = request.get("record_id")
+    file_ids = request.get("file_ids")
+    base_url = request.get("base_url", "http://localhost:11434")
+
+    if not record_id and not file_ids:
+        raise HTTPException(status_code=400, detail="必须提供record_id或file_ids")
+
+    db = SessionLocal()
+    embedder = OllamaEmbedder(base_url)
+
+    if not embedder.is_available():
+        db.close()
+        return {"error": "Ollama服务不可用，请确保Ollama正在运行"}
+
+    async def generate():
+        try:
+            if file_ids:
+                if len(file_ids) > 500:
+                    all_files = []
+                    for i in range(0, len(file_ids), 500):
+                        batch = file_ids[i:i+500]
+                        batch_files = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+                        all_files.extend(batch_files)
+                else:
+                    all_files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+            else:
+                all_files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+
+            # 过滤掉已有embedding的文件，只处理没有向量的文件
+            all_files = [f for f in all_files if not f.embedding_vector]
+
+            total = len(all_files)
+            if total == 0:
+                yield _send_sse({"type": "done", "message": "没有文件需要处理"})
+                return
+
+            success_count = 0
+            for idx, file_entry in enumerate(all_files):
+                yield _send_sse({
+                    "type": "progress",
+                    "current": idx + 1,
+                    "total": total,
+                    "file_name": file_entry.name,
+                    "percentage": int((idx + 1) * 100 / total)
+                })
+
+                embedding = embedder.generate_file_embedding(
+                    file_entry.name,
+                    file_entry.path,
+                    file_entry.content_summary
+                )
+
+                if embedding:
+                    save_embedding_to_db(db, file_entry.id, embedding)
+                    success_count += 1
+
+            yield _send_sse({
+                "type": "done",
+                "total": total,
+                "success": success_count
+            })
+
+        except Exception as e:
+            yield _send_sse({"type": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "X-Accel-Buffering": "no"
+    })
+
+
+@app.get("/tags")
+async def get_all_tags(category: str = None, min_usage: int = 0):
+    """
+    获取所有标签
+    """
+    db = SessionLocal()
+    search_engine = TagSearchEngine(db)
+    tags = search_engine.get_all_tags(category, min_usage)
+    db.close()
+    return {"tags": tags}
+
+
+@app.get("/tags/suggest")
+async def get_tag_suggestions(q: str = "", top_k: int = 10):
+    """
+    获取标签建议
+    """
+    db = SessionLocal()
+    search_engine = TagSearchEngine(db)
+    suggestions = search_engine.suggest_tags(q, top_k)
+    db.close()
+    return {"suggestions": suggestions}
+
+
+@app.get("/tags/files")
+async def get_files_by_tags(
+    tags: str = "",
+    match_mode: str = "any",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200)
+):
+    """
+    按标签搜索文件
+    """
+    tag_names = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
+    db = SessionLocal()
+    search_engine = TagSearchEngine(db)
+
+    file_ids = search_engine.search_by_tags(tag_names, match_mode=match_mode)
+
+    total = len(file_ids)
+    paginated_ids = file_ids[(page-1)*page_size:page*page_size]
+    files = get_files_with_tags(db, paginated_ids)
+
+    db.close()
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "files": files
+    }
+
+
+@app.get("/search")
+async def search_files(
+    q: str = "",
+    tags: str = "",
+    exclude_tags: str = "",
+    file_types: str = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200)
+):
+    """
+    混合搜索：关键词 + 标签 + 语义
+    """
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    exclude_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags else []
+
+    db = SessionLocal()
+    search_engine = TagSearchEngine(db)
+
+    results = search_engine.hybrid_search(
+        q,
+        required_tags=tag_list,
+        exclude_tags=exclude_tag_list,
+        top_k=500
+    )
+
+    if file_types:
+        try:
+            import json
+            type_list = json.loads(file_types)
+            ext_map = {
+                'doc': ['.doc', '.docx', '.wps', '.wpt'],
+                'pdf': ['.pdf'],
+                'xls': ['.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'],
+                'ppt': ['.ppt', '.pptx', '.pot', '.potx'],
+                'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
+                'txt': ['.txt', '.md', '.log', '.chm']
+            }
+            allowed_exts = []
+            for t in type_list:
+                allowed_exts.extend(ext_map.get(t, []))
+            results = [r for r in results if r['file']['extension'] in allowed_exts]
+        except:
+            pass
+
+    total = len(results)
+    paginated_results = results[(page-1)*page_size:page*page_size]
+
+    db.close()
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "results": paginated_results
+    }
+
+
+@app.get("/files/{file_id}/tags")
+async def get_file_tags(file_id: int):
+    """
+    获取文件的所有标签
+    """
+    db = SessionLocal()
+    search_engine = TagSearchEngine(db)
+    tags = search_engine.get_file_tags(file_id)
+    db.close()
+    return {"file_id": file_id, "tags": tags}
+
+
+@app.put("/files/{file_id}/tags")
+async def update_file_tags(file_id: int, request: dict):
+    """
+    更新文件标签（手动添加标签）
+    """
+    add_tags = request.get("add_tags", [])
+    remove_tag_ids = request.get("remove_tag_ids", [])
+
+    db = SessionLocal()
+
+    file_entry = db.query(FileEntry).filter(FileEntry.id == file_id).first()
+    if not file_entry:
+        db.close()
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    added = []
+    for tag_info in add_tags:
+        tag_name = tag_info.get("name", "").strip()
+        if not tag_name:
+            continue
+
+        category = tag_info.get("category", "其他")
+
+        tag = db.query(Tag).filter(Tag.name == tag_name).first()
+        if not tag:
+            tag = Tag(name=tag_name, category=category, usage_count=0)
+            db.add(tag)
+            db.flush()
+
+        tag.usage_count += 1
+
+        existing = db.query(FileTag).filter(
+            FileTag.file_id == file_id,
+            FileTag.tag_id == tag.id
+        ).first()
+
+        if not existing:
+            file_tag = FileTag(
+                file_id=file_id,
+                tag_id=tag.id,
+                confidence=1.0,
+                source='manual'
+            )
+            db.add(file_tag)
+            added.append(tag_name)
+
+    if remove_tag_ids:
+        remove_tags_from_db(db, file_id, remove_tag_ids)
+
+    file_entry.tag_status = 'ready'
+    db.commit()
+    db.close()
+
+    return {"success": True, "added": added}
+
+
+@app.delete("/files/{file_id}/tags/{tag_id}")
+async def delete_file_tag(file_id: int, tag_id: int):
+    """
+    删除文件的指定标签
+    """
+    db = SessionLocal()
+    result = remove_tags_from_db(db, file_id, [tag_id])
+    db.close()
+    return {"success": True, "removed": result}
+
+
+@app.get("/files/tagged")
+async def get_tagged_files(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    record_id: int = None
+):
+    """
+    获取已标记标签的文件列表
+    """
+    db = SessionLocal()
+    query = db.query(FileEntry).filter(FileEntry.tag_status == 'ready')
+
+    if record_id:
+        query = query.filter(FileEntry.scan_record_id == record_id)
+
+    total = query.count()
+    files = query.order_by(FileEntry.id.desc()).offset((page-1)*page_size).limit(page_size).all()
+
+    file_ids = [f.id for f in files]
+    files_with_tags = get_files_with_tags(db, file_ids)
+
+    db.close()
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "files": files_with_tags
     }
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")

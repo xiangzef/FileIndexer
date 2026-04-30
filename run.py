@@ -48,7 +48,11 @@ def main():
     backend_dir = os.path.join(script_dir, 'backend')
     main_py = os.path.join(backend_dir, 'main.py')
 
-    subprocess.run([sys.executable, main_py], cwd=backend_dir)
+    try:
+        subprocess.run([sys.executable, main_py], cwd=backend_dir)
+    except KeyboardInterrupt:
+        print("\n服务已停止")
+        sys.exit(0)
 
 if __name__ == '__main__':
     main()

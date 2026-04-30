@@ -39,6 +39,10 @@
         .status-ok { background: #d4edda; color: #155724; }
         .status-duplicate { background: #fff3cd; color: #856404; }
         .status-suspended { background: #e2e3e5; color: #383d41; }
+        .tag-count { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; background: #667eea; color: white; cursor: pointer; }
+        .tag-count:hover { background: #5568d3; }
+        .tag-pending { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; background: #fff3cd; color: #856404; }
+        .tag-none { color: #999; }
         .status-unavailable { background: #f8d7da; color: #721c24; }
         .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
         .modal-content { background:white;border-radius:12px;width:90%;max-width:600px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column; }
@@ -72,9 +76,16 @@
 <body>
     <div id="app">
         <div class="container">
-            <header>
-                <h1>FileIndexer</h1>
-                <p>文件索引归档工具 - 扫描、索引、查重、归档</p>
+            <header style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h1>FileIndexer</h1>
+                    <p>文件索引归档工具 - 扫描、索引、查重、归档</p>
+                </div>
+                <nav style="display:flex;gap:10px;">
+                    <a href="/" style="color:white;text-decoration:none;padding:8px 15px;background:rgba(255,255,255,0.2);border-radius:6px;">📋 文件管理</a>
+                    <a href="/ai-organize.html" style="color:white;text-decoration:none;padding:8px 15px;background:rgba(255,255,255,0.2);border-radius:6px;">🤖 AI整理</a>
+                    <a href="/search.html" style="color:white;text-decoration:none;padding:8px 15px;background:rgba(255,255,255,0.2);border-radius:6px;">🔍 素材搜索</a>
+                </nav>
             </header>
 
             <div class="stats-grid" v-if="stats.total_files > 0">
@@ -212,6 +223,7 @@
                             <th>路径</th>
                             <th>大小</th>
                             <th>类型</th>
+                            <th>标签</th>
                             <th>状态</th>
                         </tr>
                     </thead>
@@ -222,6 +234,13 @@
                             <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" :title="file.path">{{ file.path }}</td>
                             <td>{{ formatSize(file.size) }}</td>
                             <td>{{ file.extension }}</td>
+                            <td>
+                                <span v-if="file.tag_status === 'ready'" class="tag-count" @click="showFileTags(file)" title="点击查看标签">
+                                    {{ file.tag_count || '有' }}
+                                </span>
+                                <span v-else-if="file.tag_status === 'pending'" class="tag-pending">待标记</span>
+                                <span v-else class="tag-none">-</span>
+                            </td>
                             <td>
                                 <span class="status" :class="getStatusClass(file)">
                                     {{ getStatusText(file) }}
@@ -256,7 +275,7 @@
                         {{ autoDetecting ? '检测中...' : '自动判断模式' }}
                     </button>
                     <button class="btn btn-secondary" @click="showAIModal = true" :disabled="selectedFiles.length === 0">
-                        🤖 AI分析
+                        🏷️ AI打标签
                     </button>
                     <button class="btn btn-secondary" @click="showSourceModal = true">
                         📁 来源管理
@@ -267,52 +286,10 @@
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-title flex-between">
-                    <span>归档文件</span>
-                </div>
-                <div class="input-group">
-                    <input type="text" v-model="archiveDir" placeholder="目标归档目录，如 D:\Archive">
-                    <select v-model="archiveMode" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
-                        <option value="copy">复制</option>
-                        <option value="move">移动</option>
-                    </select>
-                    <select v-model="archiveSmart" style="padding:12px;border:1px solid #ddd;border-radius:8px;">
-                        <option :value="true">智能分类</option>
-                        <option :value="false">原样复制</option>
-                    </select>
-                    <button class="btn btn-primary" @click="archiveFiles" :disabled="selectedFiles.length === 0 || archiving">
-                        {{ archiving ? '归档中...' : '归档 (' + selectedFiles.length + ')' }}
-                    </button>
-                </div>
-                <div v-if="archiving || archiveProgress > 0" style="margin-top:15px;">
-                    <div style="margin-bottom:8px;display:flex;justify-content:space-between;">
-                        <span>{{ archiveStatus }}</span>
-                        <span>{{ archiveProgress }}%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" :style="{width: archiveProgress + '%'}"></div>
-                    </div>
-                    <div v-if="archiveLogs.length > 0" style="margin-top:10px;max-height:150px;overflow-y:auto;font-size:12px;color:#666;">
-                        <div v-for="(log, i) in archiveLogs" :key="i">{{ log }}</div>
-                    </div>
-                </div>
-                <div style="margin-top:10px;padding:10px;background:#f8f9fa;border-radius:8px;">
-                    <div style="margin-bottom:8px;font-weight:500;">选择归档类型：</div>
-                    <div class="tags">
-                        <span class="tag" :class="{active: archiveTypes.length === 0}" @click="archiveTypes = []">全部</span>
-                        <span class="tag" :class="{active: archiveTypes.includes('.doc') || archiveTypes.includes('.docx')}" @click="toggleArchiveType('.doc')">Word文档</span>
-                        <span class="tag" :class="{active: archiveTypes.includes('.pdf')}" @click="toggleArchiveType('.pdf')">PDF文档</span>
-                        <span class="tag" :class="{active: archiveTypes.includes('.csv') || archiveTypes.includes('.xls') || archiveTypes.includes('.xlsx')}" @click="toggleArchiveType('.csv')">表格文件</span>
-                        <span class="tag" :class="{active: archiveTypes.includes('.ppt') || archiveTypes.includes('.pptx')}" @click="toggleArchiveType('.ppt')">PPT幻灯片</span>
-                        <span class="tag" :class="{active: archiveTypes.includes('.jpg') || archiveTypes.includes('.png') || archiveTypes.includes('.gif')}" @click="toggleArchiveType('.jpg')">图片</span>
-                    </div>
-                </div>
-
         <div v-if="showAIModal" class="modal-overlay" @click.self="showAIModal = false">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>🤖 AI 分析与归档</h3>
+                <h3>🏷️ AI 打标签</h3>
                 <button class="modal-close" @click="showAIModal = false">&times;</button>
             </div>
             <div class="modal-body">
@@ -326,10 +303,9 @@
                         <option value="minimax">🌟 MiniMax - 免费额度</option>
                         <option value="kimi">🌙 月之暗面Kimi - 免费额度</option>
                         <option value="deepseek">🔱 DeepSeek - 免费额度</option>
-                        <option value="local">📋 规则分析 - 无需网络</option>
                     </select>
                 </div>
-                <div v-if="aiProvider !== 'ollama' && aiProvider !== 'local'" style="margin-bottom:20px;">
+                <div v-if="aiProvider !== 'ollama'" style="margin-bottom:20px;">
                     <label style="display:block;margin-bottom:8px;font-weight:500;">API Key</label>
                     <input type="password" v-model="aiApiKey" placeholder="请输入API Key" style="padding:12px;border:1px solid #ddd;border-radius:8px;width:100%;">
                     <p style="margin-top:5px;font-size:12px;color:#666;">{{ getProviderTip(aiProvider) }}</p>
@@ -337,19 +313,11 @@
                 <div v-if="aiProvider === 'ollama'" style="margin-bottom:20px;padding:12px;background:#e8f5e9;border-radius:8px;color:#2e7d32;">
                     ✓ 使用本地 Ollama 服务，无需 API Key
                 </div>
-                <div v-if="aiProvider === 'local'" style="margin-bottom:20px;padding:12px;background:#e3f2fd;border-radius:8px;color:#1565c0;">
-                    ℹ️ 规则模式使用关键词匹配和项目检测，完全离线
-                </div>
                 <div style="margin-bottom:20px;">
                     <label style="display:block;margin-bottom:8px;font-weight:500;">AI 模型</label>
                     <select v-model="aiModel" style="padding:12px;border:1px solid #ddd;border-radius:8px;width:100%;">
                         <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
                     </select>
-                    <p style="margin-top:5px;font-size:12px;color:#666;">{{ getModelTip(aiProvider) }}</p>
-                </div>
-                <div style="margin-bottom:20px;">
-                    <label style="display:block;margin-bottom:8px;font-weight:500;">Base URL (可选)</label>
-                    <input type="text" v-model="aiBaseUrl" placeholder="如需代理或自定义端点" style="padding:12px;border:1px solid #ddd;border-radius:8px;width:100%;">
                 </div>
                 <div v-if="aiAnalyzing" style="margin-bottom:20px;">
                     <div style="margin-bottom:8px;display:flex;justify-content:space-between;">
@@ -360,30 +328,15 @@
                         <div class="progress-fill" :style="{width: aiProgress + '%'}"></div>
                     </div>
                 </div>
-                <div v-if="aiResult && !aiAnalysisResult" style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:8px;max-height:300px;overflow-y:auto;">
-                    <pre style="white-space:pre-wrap;font-size:13px;">{{ aiResult }}</pre>
-                </div>
-                <div v-if="aiAnalysisResult && aiAnalysisResult.total_files" style="margin-top:15px;max-height:300px;overflow-y:auto;">
-                    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:15px;border-radius:8px;margin-bottom:15px;">
-                        <div style="font-size:18px;font-weight:600;margin-bottom:8px;">📊 分析完成</div>
-                        <div style="opacity:0.9;">共 <strong>{{ aiAnalysisResult.total_files }}</strong> 个文件 | 建议文件夹: <strong>{{ aiAnalysisResult.suggested_folder_name }}</strong></div>
-                        <div style="margin-top:8px;font-size:13px;opacity:0.85;">{{ aiAnalysisResult.summary }}</div>
-                    </div>
-                    <div v-if="aiAnalysisResult.groups" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
-                        <div v-for="(ids, groupName) in aiAnalysisResult.groups" :key="groupName" style="background:white;border-radius:8px;padding:12px;border-left:4px solid #667eea;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
-                            <div style="font-weight:600;color:#333;font-size:14px;margin-bottom:4px;">{{ groupName }}</div>
-                            <div style="color:#666;font-size:12px;">{{ ids.length }} 个文件</div>
-                        </div>
-                    </div>
+                <div v-if="tagResult" style="margin-top:15px;padding:15px;background:#d4edda;border-radius:8px;">
+                    <div style="font-size:16px;font-weight:600;color:#155724;margin-bottom:8px;">✓ 打标签完成</div>
+                    <div style="color:#155724;">{{ tagResult }}</div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" @click="showAIModal = false">关闭</button>
-                <button class="btn btn-primary" @click="startAiAnalyze" :disabled="aiAnalyzing">
-                    {{ aiAnalyzing ? '分析中...' : '开始分析' }}
-                </button>
-                <button class="btn btn-success" @click="startAiArchive" :disabled="aiAnalyzing">
-                    AI智能归档
+                <button class="btn btn-primary" @click="startAiTagging" :disabled="aiAnalyzing">
+                    {{ aiAnalyzing ? '打标签中...' : '开始打标签' }}
                 </button>
             </div>
         </div>
@@ -437,6 +390,36 @@
         </div>
     </div>
 
+    <!-- 标签查看弹窗 -->
+    <div v-if="showTagsModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;" @click.self="showTagsModal = false">
+        <div style="background:white;border-radius:12px;padding:25px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <h3 style="font-size:18px;">{{ viewingFileTags.name }}</h3>
+                <button @click="showTagsModal = false" style="background:none;border:none;font-size:24px;cursor:pointer;color:#999;">&times;</button>
+            </div>
+            <div style="margin-bottom:15px;">
+                <div style="font-size:14px;color:#666;margin-bottom:8px;">标签：</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <span v-for="tag in viewingFileTags.tags" :key="tag.id"
+                          style="padding:6px 12px;background:#e9ecef;border-radius:20px;font-size:13px;"
+                          :style="tag.source === 'ai' ? 'border-left:3px solid #667eea;' : 'border-left:3px solid #28a745;'">
+                        {{ tag.name }}
+                    </span>
+                    <span v-if="viewingFileTags.tags.length === 0" style="color:#999;font-size:13px;">暂无标签</span>
+                </div>
+            </div>
+            <div style="margin-bottom:15px;">
+                <div style="font-size:14px;color:#666;margin-bottom:8px;">摘要：</div>
+                <div style="padding:10px;background:#f8f9fa;border-radius:6px;font-size:14px;color:#666;">
+                    {{ viewingFileTags.summary || '暂无摘要' }}
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <button class="btn btn-primary" @click="openSearchPage">打开搜索页面</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const { createApp, ref, computed, watch } = Vue;
 
@@ -460,41 +443,27 @@
                 const pageSize = ref(50);
                 const totalFiles = ref(0);
                 const logs = ref([]);
-                const archiveDir = ref('');
-                const archiveSmart = ref(true);
-                const archiveMode = ref('copy');
                 const stats = ref({ total_files: 0, total_duplicates: 0, total_size: 0, by_extension: {} });
-                const archiving = ref(false);
-                const archiveTypes = ref([]);
                 const aiAnalyzing = ref(false);
                 const autoDetecting = ref(false);
                 const aiMode = ref('local');
                 const apiKey = ref('');
                 const aiAnalysisResult = ref('');
+                const tagResult = ref('');
                 const showAIModal = ref(false);
                 const showSourceModal = ref(false);
+                const showTagsModal = ref(false);
+                const viewingFileTags = ref({ name: '', tags: [], summary: '' });
                 const aiProvider = ref(localStorage.getItem('aiProvider') || 'ollama');
                 const getApiKey = () => localStorage.getItem(`aiApiKey_${aiProvider.value}`) || '';
                 const setApiKey = (key) => localStorage.setItem(`aiApiKey_${aiProvider.value}`, key);
                 const aiApiKey = ref(getApiKey());
                 const aiModel = ref(localStorage.getItem('aiModel') || '');
                 const aiBaseUrl = ref(localStorage.getItem('aiBaseUrl') || '');
-                const DEFAULT_MODELS = {
-                    ollama: ["llama3", "llama3.1", "llama3.2", "qwen2.5", "qwen2.5:1.5b", "qwen2.5:3b", "mistral", "phi3", "gemma2", "codellama"],
-                    zhipu: ["glm-4", "glm-4-flash", "glm-4-plus", "glm-4v", "glm-4v-plus", "cogview-3"],
-                    qwen: ["qwen3.6-max-preview", "qwen3-max", "qwen3.5-plus", "qwen3.5-flash", "qwen-plus", "qwen-plus-latest", "qwen-max", "qwen-max-latest", "qwen-turbo", "qwen-turbo-latest", "qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-coder-turbo", "qwen-long", "qwq-plus"],
-                    wenxin: ["ernie-4-8k", "ernie-4-32k", "ernie-4-128k", "ernie-speed-128k", "ernie-speed-pro-128k", "ernie-lite-pro-8k", "ernie-lite-8k", "ernie-mini", "ernie-turbo-pro-128k", "ernie-turbo-8k"],
-                    minimax: ["MiniMax-Text-01", "MiniMax-M2.1", "MiniMax-M2.1-mini", "MiniMax-VL-01", "MiniMax-M2", "MiniMax-M2.7"],
-                    kimi: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "moonshot-v1-4k"],
-                    deepseek: ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"]
-                };
                 const availableModels = ref([]);
                 const aiResult = ref('');
                 const aiProgress = ref(0);
                 const aiStatus = ref('');
-                const archiveProgress = ref(0);
-                const archiveStatus = ref('');
-                const archiveLogs = ref([]);
                 const sourceStats = ref([]);
                 const unavailableCount = ref(0);
                 const checkingUnavailable = ref(false);
@@ -545,6 +514,26 @@
                     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
                 }
 
+                async function showFileTags(file) {
+                    try {
+                        const res = await fetch(`http://127.0.0.1:56789/files/${file.id}/tags`);
+                        const data = await res.json();
+                        viewingFileTags.value = {
+                            name: file.name,
+                            tags: data.tags || [],
+                            summary: file.content_summary || ''
+                        };
+                        showTagsModal.value = true;
+                    } catch (e) {
+                        console.error('加载标签失败:', e);
+                    }
+                }
+
+                function openSearchPage() {
+                    showTagsModal.value = false;
+                    window.open('search.html', '_blank');
+                }
+
                 function formatDate(dateStr) {
                     if (!dateStr) return '-';
                     const d = new Date(dateStr);
@@ -576,18 +565,18 @@
                     return tips[provider] || '';
                 }
 
-                async function startAiAnalyze() {
+                async function startAiTagging() {
                     if (selectedFiles.value.length === 0) {
                         alert('请先选择文件');
                         return;
                     }
                     aiAnalyzing.value = true;
                     aiProgress.value = 0;
-                    aiStatus.value = '准备分析...';
-                    aiResult.value = '';
+                    aiStatus.value = '准备打标签...';
+                    tagResult.value = '';
 
                     try {
-                        const res = await fetch('/ai/analyze', {
+                        const response = await fetch('/ai/tag/batch', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -598,60 +587,40 @@
                                 base_url: aiBaseUrl.value
                             })
                         });
-                        const data = await res.json();
-                        aiResult.value = data.result || JSON.stringify(data, null, 2);
-                        aiStatus.value = '分析完成';
-                        aiProgress.value = 100;
-                    } catch (e) {
-                        aiResult.value = '分析失败: ' + e.message;
-                        aiStatus.value = '分析失败';
-                    }
-                    aiAnalyzing.value = false;
-                }
 
-                async function startAiArchive() {
-                    if (selectedFiles.value.length === 0) {
-                        alert('请先选择文件');
-                        return;
-                    }
-                    if (!archiveDir.value.trim()) {
-                        alert('请输入目标归档目录');
-                        return;
-                    }
-                    aiAnalyzing.value = true;
-                    aiProgress.value = 0;
-                    aiStatus.value = '准备AI归档...';
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
 
-                    try {
-                        const res = await fetch('/ai/archive', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                file_ids: selectedFiles.value,
-                                target_dir: archiveDir.value,
-                                mode: archiveMode.value,
-                                provider: aiProvider.value,
-                                api_key: aiApiKey.value,
-                                model: aiModel.value,
-                                base_url: aiBaseUrl.value
-                            })
-                        });
-                        const data = await res.json();
-                        if (data.results) {
-                            const successCount = data.results.filter(r => r.success).length;
-                            aiResult.value = `AI归档完成: ${successCount}/${data.results.length} 个文件\n` +
-                                data.results.map(r => `${r.success ? '✓' : '✗'} ${r.new_path || r.error || r.message}`).join('\n');
-                        } else {
-                            aiResult.value = JSON.stringify(data, null, 2);
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            const text = decoder.decode(value);
+                            const lines = text.split('\n');
+
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    try {
+                                        const data = JSON.parse(line.slice(6));
+                                        if (data.type === 'progress') {
+                                            aiProgress.value = data.percentage;
+                                            aiStatus.value = `正在处理: ${data.file_name}`;
+                                        } else if (data.type === 'done') {
+                                            aiStatus.value = '打标签完成';
+                                            aiProgress.value = 100;
+                                            tagResult.value = `成功处理 ${data.success} / ${data.total} 个文件`;
+                                        } else if (data.type === 'error') {
+                                            tagResult.value = '打标签失败: ' + data.message;
+                                        }
+                                    } catch (e) {
+                                        console.error('解析进度失败:', e);
+                                    }
+                                }
+                            }
                         }
-                        aiStatus.value = '归档完成';
-                        aiProgress.value = 100;
-                        selectedFiles.value = [];
-                        loadFiles();
-                        loadStats();
                     } catch (e) {
-                        aiResult.value = '归档失败: ' + e.message;
-                        aiStatus.value = '归档失败';
+                        tagResult.value = '打标签失败: ' + e.message;
+                        aiStatus.value = '打标签失败';
                     }
                     aiAnalyzing.value = false;
                 }
@@ -1128,161 +1097,15 @@
                         addLog('success', `自动检测完成: AI模式 ${data.ai.length} 个文件, 通用模式 ${data.general.length} 个文件`);
 
                         if (data.ai.length > 0) {
-                            if (confirm(`检测到 ${data.ai.length} 个文件适合AI模式处理，是否使用AI分析？`)) {
+                            if (confirm(`检测到 ${data.ai.length} 个文件适合AI模式处理，是否使用AI打标签？`)) {
                                 selectedFiles.value = data.ai;
-                                aiAnalyze();
+                                startAiTagging();
                             }
                         }
                     } catch (e) {
                         addLog('error', '自动检测失败: ' + e.message);
                     } finally {
                         autoDetecting.value = false;
-                    }
-                }
-
-                async function aiAnalyze() {
-                    aiAnalyzing.value = true;
-                    addLog('info', '开始AI分析文件...');
-
-                    try {
-                        const res = await fetch('/ai/analyze', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                file_ids: selectedFiles.value,
-                                ai_mode: aiMode.value,
-                                api_key: apiKey.value
-                            })
-                        });
-                        const data = await res.json();
-                        aiAnalysisResult.value = data;
-                        addLog('success', `AI分析完成: ${data.total_files} 个文件`);
-
-                        if (data.summary) {
-                            alert('AI分析结果:\n' + data.summary);
-                        }
-                    } catch (e) {
-                        addLog('error', 'AI分析失败: ' + e.message);
-                    } finally {
-                        aiAnalyzing.value = false;
-                    }
-                }
-
-                async function archiveFiles() {
-                    if (!archiveDir.value.trim()) {
-                        alert('请输入目标目录');
-                        return;
-                    }
-
-                    archiving.value = true;
-                    archiveProgress.value = 0;
-                    archiveStatus.value = '准备归档...';
-                    archiveLogs.value = [];
-
-                    const url = archiveSmart.value ? '/archive' : '/archive-simple';
-                    try {
-                        archiveLogs.value.push(`${new Date().toLocaleTimeString()} 开始归档 ${selectedFiles.value.length} 个文件...`);
-                        const res = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                file_ids: selectedFiles.value,
-                                target_dir: archiveDir.value,
-                                mode: archiveMode.value
-                            })
-                        });
-
-                        if (archiveSmart.value) {
-                            const reader = res.body.getReader();
-                            const decoder = new TextDecoder();
-                            let buffer = '';
-
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-
-                                buffer += decoder.decode(value, { stream: true });
-                                const lines = buffer.split('\n');
-                                buffer = lines.pop();
-
-                                for (const line of lines) {
-                                    if (line.startsWith('data: ')) {
-                                        try {
-                                            const data = JSON.parse(line.slice(6));
-                                            if (data.type === 'start') {
-                                                archiveStatus.value = `开始归档，共 ${data.total} 个文件`;
-                                            } else if (data.type === 'category') {
-                                                archiveStatus.value = `处理分类: ${data.category}`;
-                                                archiveLogs.value.push(`${new Date().toLocaleTimeString()} ${data.category}: ${data.count} 个文件`);
-                                            } else if (data.type === 'file') {
-                                                archiveProgress.value = Math.round((data.processed / data.total) * 100);
-                                                archiveStatus.value = `归档中: ${data.name}`;
-                                            } else if (data.type === 'complete') {
-                                                archiveProgress.value = 100;
-                                                archiveStatus.value = '归档完成';
-                                                archiveLogs.value.push(`${new Date().toLocaleTimeString()} 归档完成，共 ${data.total} 个文件`);
-                                            } else if (data.type === 'error') {
-                                                archiveLogs.value.push(`${new Date().toLocaleTimeString()} 错误: ${data.message}`);
-                                            }
-                                        } catch (e) {}
-                                    }
-                                }
-                            }
-                            addLog('success', `归档完成`);
-                            selectedFiles.value = [];
-                            loadFiles();
-                        } else {
-                            const data = await res.json();
-                            archiveProgress.value = 100;
-                            archiveStatus.value = '归档完成';
-                            archiveLogs.value.push(`${new Date().toLocaleTimeString()} 归档完成`);
-                            addLog('success', `归档完成`);
-                            selectedFiles.value = [];
-                            loadFiles();
-                        }
-                    } catch (e) {
-                        archiveStatus.value = '归档失败';
-                        archiveLogs.value.push(`${new Date().toLocaleTimeString()} 归档失败: ${e.message}`);
-                        addLog('error', '归档失败: ' + e.message);
-                    } finally {
-                        archiving.value = false;
-                    }
-                }
-
-                async function aiArchive() {
-                    if (!archiveDir.value.trim()) {
-                        alert('请输入目标目录');
-                        return;
-                    }
-
-                    aiArchiving.value = true;
-                    addLog('info', `开始AI智能归档，使用模式: ${aiMode.value}`);
-
-                    try {
-                        const res = await fetch('/ai/archive', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                file_ids: selectedFiles.value,
-                                target_dir: archiveDir.value,
-                                mode: archiveMode.value,
-                                ai_mode: aiMode.value,
-                                api_key: apiKey.value
-                            })
-                        });
-                        const data = await res.json();
-                        if (data.results) {
-                            const successCount = data.results.filter(r => r.success).length;
-                            addLog('success', `AI归档完成: ${successCount} 个文件`);
-                        } else {
-                            addLog('success', `AI归档完成`);
-                        }
-                        selectedFiles.value = [];
-                        loadFiles();
-                    } catch (e) {
-                        addLog('error', 'AI归档失败: ' + e.message);
-                    } finally {
-                        aiArchiving.value = false;
                     }
                 }
 
@@ -1310,16 +1133,6 @@
                     }
                 }
 
-                function toggleArchiveType(ext) {
-                    const exts = {'.doc': ['.doc','.docx'], '.pdf': ['.pdf'], '.csv': ['.csv','.xls','.xlsx'], '.ppt': ['.ppt','.pptx'], '.jpg': ['.jpg','.jpeg','.png','.gif','.bmp']};
-                    const targets = exts[ext] || [ext];
-                    const hasAll = targets.every(e => archiveTypes.value.includes(e));
-                    if (hasAll) {
-                        targets.forEach(e => { const i = archiveTypes.value.indexOf(e); if(i > -1) archiveTypes.value.splice(i, 1); });
-                    } else {
-                        targets.forEach(e => { if(!archiveTypes.value.includes(e)) archiveTypes.value.push(e); });
-                    }
-                }
 
                 function togglePageAll(event) {
                     if (event.target.checked) {
@@ -1340,23 +1153,18 @@
                 watch(currentPage, loadFiles);
 
                 const loadModels = async () => {
-                    if (aiProvider.value === 'ollama') {
-                        try {
-                            const res = await fetch('http://localhost:11434/api/tags');
-                            const data = await res.json();
-                            if (data.models && data.models.length > 0) {
-                                availableModels.value = data.models.map(m => m.name);
-                            } else {
-                                availableModels.value = DEFAULT_MODELS.ollama;
-                            }
-                        } catch (e) {
-                            availableModels.value = DEFAULT_MODELS.ollama;
+                    try {
+                        const res = await fetch(`/ai/models?provider=${aiProvider.value}&base_url=${encodeURIComponent(aiBaseUrl.value || 'http://localhost:11434')}`);
+                        const data = await res.json();
+                        availableModels.value = data.models || [];
+                        if (data.default_model && availableModels.value.includes(data.default_model)) {
+                            aiModel.value = data.default_model;
+                        } else if (availableModels.value.length > 0 && !aiModel.value) {
+                            aiModel.value = availableModels.value[0];
                         }
-                    } else {
-                        availableModels.value = DEFAULT_MODELS[aiProvider.value] || [];
-                    }
-                    if (!availableModels.value.includes(aiModel.value)) {
-                        aiModel.value = availableModels.value[0] || '';
+                    } catch (e) {
+                        console.error('加载模型列表失败:', e);
+                        availableModels.value = [];
                     }
                 };
 
@@ -1381,27 +1189,26 @@
 
                 return {
                     scanPath, scanHistory, scanning, computing, deduplicating, renaming,
-                    scanProgress, scanStatus, files, selectedFiles, archiveTypes, archiveSmart,
+                    scanProgress, scanStatus, files, selectedFiles,
                     isPageAllSelected, updatePageAllState, togglePageAll,
                     searchKeyword, filterDuplicate, filterStatus, selectedExt,
                     selectedTypes, showTypeDropdown, allTypes, toggleTypeFilter,
                     currentPage, pageSize, totalFiles, totalPages,
-                    logs, archiveDir, archiveMode, stats, archiving, toggleArchiveType,
+                    logs, stats,
                     aiAnalyzing, autoDetecting, aiMode, apiKey,
                     sourceStats, unavailableCount, checkingUnavailable,
                     showAIModal, showSourceModal, aiProvider, aiApiKey, aiModel, aiBaseUrl,
-                    aiResult, aiProgress, aiStatus, aiAnalysisResult, availableModels,
-                    archiveProgress, archiveStatus, archiveLogs,
+                    aiResult, aiProgress, aiStatus, aiAnalysisResult, tagResult, availableModels,
                     scanRecords,
                     startScan, stopScan, loadFiles, computeMD5,
-                    deduplicate, renameByDate, archiveFiles,
-                    autoDetectMode, aiAnalyze, aiArchive,
+                    deduplicate, renameByDate,
+                    autoDetectMode, startAiTagging,
                     loadSourceStats, checkUnavailable, suspendSource, restoreSource, deleteSource,
                     loadScanRecords, suspendRecord, restoreRecord, deleteRecord,
                     batchDelete, batchSuspend, batchRestore,
                     selectAllInPage, selectAllFiltered,
                     getStatusClass, getStatusText,
-                    getProviderTip, getModelTip, startAiAnalyze, startAiArchive,
+                    getProviderTip, getModelTip,
                     debounceSearch, formatSize, formatDate
                 };
             }

@@ -1,15 +1,15 @@
 import os
 import json
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 PROVIDER_CONFIGS = {
     "ollama": {
         "base_url": "http://localhost:11434/v1",
-        "default_model": "qwen2.5:1.5b",
+        "default_model": "",
         "supports_stream": True,
         "requires_api_key": False,
-        "models": ["llama3", "llama3.1", "llama3.2", "mistral", "qwen2.5", "qwen2.5:1.5b", "qwen2.5:3b", "phi3", "gemma2", "codellama"]
+        "models": []
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
@@ -242,3 +242,25 @@ class AIProvider:
 def get_ai_provider(provider: str = "ollama", api_key: Optional[str] = None,
                      model: Optional[str] = None, base_url: Optional[str] = None) -> AIProvider:
     return AIProvider(provider, api_key, model, base_url)
+
+
+def get_ollama_models(base_url: str = "http://localhost:11434") -> List[str]:
+    """动态获取 Ollama 可用模型列表"""
+    try:
+        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+            return models
+    except Exception as e:
+        print(f"获取Ollama模型列表失败: {e}")
+    return []
+
+
+def get_provider_models(provider: str, api_key: Optional[str] = None) -> List[str]:
+    """获取指定provider的可用模型列表"""
+    if provider == "ollama":
+        return get_ollama_models()
+
+    config = PROVIDER_CONFIGS.get(provider, {})
+    return config.get("models", [])
