@@ -1352,12 +1352,35 @@ async def batch_restore_files(request: dict):
     return {"restored_count": count}
 
 @app.get("/scan-record/{record_id}/files")
-async def get_scan_record_files(record_id: int, offset: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000)):
+async def get_scan_record_files(record_id: int, offset: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000), file_types: str = None):
     """
-    获取指定扫描记录下的所有文件（支持分页）
+    获取指定扫描记录下的所有文件（支持分页和文件类型筛选）
     """
     db = SessionLocal()
     query = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id)
+
+    # 文件类型筛选
+    if file_types:
+        import json
+        try:
+            types = json.loads(file_types)
+            all_exts = []
+            type_map = {
+                'doc': ['.doc', '.docx', '.wps', '.wpt'],
+                'pdf': ['.pdf'],
+                'xls': ['.csv', '.xls', '.xlsx', '.xlsb', '.et', '.ets'],
+                'ppt': ['.ppt', '.pptx', '.pot', '.potx'],
+                'img': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'],
+                'txt': ['.txt', '.md', '.log', '.chm'],
+                'ebook': ['.epub', '.mobi', '.azw', '.azw3', '.azw4', '.kf8', '.kfx', '.fb2', '.cbr', '.cbz', '.ibooks']
+            }
+            for t in types:
+                all_exts.extend(type_map.get(t, []))
+            if all_exts:
+                query = query.filter(FileEntry.extension.in_(all_exts))
+        except:
+            pass
+
     total = query.count()
     files = query.order_by(FileEntry.id).offset(offset).limit(limit).all()
     result = []

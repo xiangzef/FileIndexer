@@ -153,6 +153,21 @@
                             <span class="count">共 {{ totalFiles }} 个</span>
                         </div>
 
+                        <!-- 文件类型筛选 -->
+                        <div class="file-type-filter" style="margin-bottom:6px;">
+                            <div class="checkbox-dropdown" style="position:relative;">
+                                <button class="btn btn-xs btn-secondary" @click="showTypeDropdown = !showTypeDropdown" style="min-width:100px;">
+                                    {{ selectedTypes.length === 0 ? '全部类型' : '已选' + selectedTypes.length + '类' }} ▼
+                                </button>
+                                <div v-if="showTypeDropdown" @click.stop style="position:absolute;top:100%;left:0;background:white;border:1px solid #ddd;border-radius:6px;padding:8px;z-index:100;min-width:140px;box-shadow:0 3px 10px rgba(0,0,0,0.12);">
+                                    <div v-for="t in allTypes" :key="t.value" @click="toggleTypeFilter(t.value)" style="display:flex;align-items:center;padding:4px 0;cursor:pointer;font-size:11px;">
+                                        <input type="checkbox" :checked="selectedTypes.includes(t.value)" style="margin-right:6px;">
+                                        <span style="white-space:nowrap;">{{ t.label }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 操作按钮 -->
                         <div class="file-list-actions">
                             <button class="btn btn-primary btn-sm" @click="selectAllOnPage" :disabled="files.length === 0">选当前页</button>
@@ -231,6 +246,9 @@
                                 </span>
                                 <span class="ctx-count" v-if="activeContextFileCount > 0">
                                     {{ activeContextFileCount }} 个文件上下文
+                                </span>
+                                <span class="ctx-history" v-if="learnHistoryText" style="font-size:10px;color:#999;">
+                                    ({{ learnHistoryText }})
                                 </span>
                             </div>
                             <div class="right-actions">
@@ -336,6 +354,30 @@
                 const selectPageMode = ref(false);
                 const selectedPages = ref([]);
 
+                // 文件类型筛选
+                const selectedTypes = ref([]);
+                const showTypeDropdown = ref(false);
+                const allTypes = [
+                    { value: 'doc', label: 'Word文档' },
+                    { value: 'pdf', label: 'PDF文档' },
+                    { value: 'xls', label: '表格文件' },
+                    { value: 'ppt', label: 'PPT幻灯片' },
+                    { value: 'img', label: '图片' },
+                    { value: 'txt', label: '文本文件' },
+                    { value: 'ebook', label: '电子书' }
+                ];
+
+                function toggleTypeFilter(type) {
+                    const idx = selectedTypes.value.indexOf(type);
+                    if (idx >= 0) {
+                        selectedTypes.value.splice(idx, 1);
+                    } else {
+                        selectedTypes.value.push(type);
+                    }
+                    currentPage.value = 1;
+                    loadFilesPage();
+                }
+
                 // 已选文件
                 const selectedFiles = ref([]);
 
@@ -359,8 +401,55 @@
                     return conversations.value.find(c => c.id === currentConversationId.value) || conversations.value[0];
                 });
 
+                const LEARN_HISTORY_KEY = 'fileindexer_learn_history';
+
+                function loadLearnHistory() {
+                    try {
+                        const saved = localStorage.getItem(LEARN_HISTORY_KEY);
+                        return saved ? JSON.parse(saved) : {};
+                    } catch (e) {
+                        console.error('加载学习历史失败:', e);
+                        return {};
+                    }
+                }
+
+                function saveLearnHistory(history) {
+                    try {
+                        localStorage.setItem(LEARN_HISTORY_KEY, JSON.stringify(history));
+                    } catch (e) {
+                        console.error('保存学习历史失败:', e);
+                    }
+                }
+
+                function updateLearnHistory(model, recordId, fileCount, fileSummary) {
+                    const history = loadLearnHistory();
+                    if (!history[model]) history[model] = {};
+                    if (!history[model][recordId]) history[model][recordId] = { totalFiles: 0, learnCount: 0 };
+                    const rec = history[model][recordId];
+                    rec.totalFiles = fileCount;
+                    rec.learnCount = (rec.learnCount || 0) + fileCount;
+                    rec.lastLearnedAt = Date.now();
+                    rec.fileSummary = fileSummary;
+                    saveLearnHistory(history);
+                }
+
+                function getLearnStats(model, recordId) {
+                    const history = loadLearnHistory();
+                    if (!history[model] || !history[model][recordId]) return null;
+                    return history[model][recordId];
+                }
+
+                // 显示当前上下文数量
                 const activeContextFileCount = computed(() => {
                     return globalLearnedContext.value?.fileCount || 0;
+                });
+
+                // 显示历史累计
+                const learnHistoryText = computed(() => {
+                    if (!selectedModel.value || !selectedRecord.value) return '';
+                    const stats = getLearnStats(selectedModel.value, selectedRecord.value.id);
+                    if (!stats) return '';
+                    return `历史累计: ${stats.learnCount} 个文件`;
                 });
 
                 // 工具函数
@@ -442,9 +531,14 @@
                     if (!selectedRecord.value) return;
                     try {
                         const offset = (currentPage.value - 1) * PAGE_SIZE;
-                        const res = await fetch(`/scan-record/${selectedRecord.value.id}/files?offset=${offset}&limit=${PAGE_SIZE}`);
+                        let url = `/scan-record/${selectedRecord.value.id}/files?offset=${offset}&limit=${PAGE_SIZE}`;
+                        if (selectedTypes.value.length > 0) {
+                            url += '&file_types=' + encodeURIComponent(JSON.stringify(selectedTypes.value));
+                        }
+                        const res = await fetch(url);
                         const data = await res.json();
                         files.value = data.files || [];
+                        totalFiles.value = data.total || 0;
 
                         // 加载标签
                         for (let file of files.value) {
@@ -635,6 +729,7 @@ ${chunk.map(f => `📄 ${f.name}\n   路径: ${f.path}\n   标签: ${f.tags}`).j
                         };
 
                         saveGlobalLearnedContext();
+                        updateLearnHistory(selectedModel.value, selectedRecord.value.id, total, fileSummary);
                         learnProgress.value = `✓ 学习完成！AI已理解 ${learnedCount} 个文件`;
                         learnPercentage.value = 100;
 
@@ -722,12 +817,23 @@ ${fileList}
 
                         // 调用后端API查找文件
                         try {
+                            // 提取文件名（去掉询问语）
+                            const askPatterns = ['在哪', '在哪里', '位置', '路径', '查找', '找一下', '问一下'];
+                            let searchName = userMessage;
+                            for (const p of askPatterns) {
+                                if (searchName.includes(p)) {
+                                    searchName = searchName.split(p)[0].trim();
+                                    break;
+                                }
+                            }
+
                             const findRes = await fetch('/ai/find-file', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ file_name: userMessage })
+                                body: JSON.stringify({ file_name: searchName })
                             });
                             const findData = await findRes.json();
+                            console.log('查找文件结果:', findData);
                             if (findData.found && findData.files && findData.files.length > 0) {
                                 fileInfo = findData.files.map(f =>
                                     `📄 ${f.name}\n   路径: ${f.path}\n   标签: ${f.tags}`
@@ -830,8 +936,10 @@ Please recommend relevant files and explain your reasoning.`;
                     inputMessage, loading, messagesContainer,
                     promptTarget, promptInput, generatedPrompt,
                     files, totalFiles, currentPage, totalPages, selectPageMode, selectedPages,
+                    selectedTypes, showTypeDropdown, allTypes, toggleTypeFilter,
                     selectedFiles, learning, learnProgress, learnPercentage,
                     globalLearnedContext, globalLearnedFilesData,
+                    learnHistoryText, updateLearnHistory, getLearnStats,
                     conversations, currentConversationId, currentConversation, activeContextFileCount,
                     truncatePath, selectRecord, loadFilesPage,
                     selectAllOnPage, selectAllPages, clearSelection, selectCurrentPageOnly, updateSelectedFiles,
