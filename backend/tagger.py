@@ -425,6 +425,12 @@ class AITagger:
         """从文本中提取JSON"""
         text = text.strip()
 
+        # 处理代码块包裹的JSON
+        if '```' in text:
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+            if json_match:
+                return json_match.group(1).strip()
+
         if text.startswith('{'):
             depth = 0
             start = 0

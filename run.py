@@ -49,7 +49,11 @@ def main():
     main_py = os.path.join(backend_dir, 'main.py')
 
     try:
-        subprocess.run([sys.executable, main_py], cwd=backend_dir)
+        subprocess.run(
+            [sys.executable, '-u', main_py],
+            cwd=backend_dir,
+            env={**os.environ, 'PYTHONUNBUFFERED': '1'}
+        )
     except KeyboardInterrupt:
         print("\n服务已停止")
         sys.exit(0)

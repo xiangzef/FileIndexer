@@ -41,6 +41,10 @@
         .status-suspended { background: #e2e3e5; color: #383d41; }
         .tag-count { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; background: #667eea; color: white; cursor: pointer; }
         .tag-count:hover { background: #5568d3; }
+        .tag-badge { display: inline-block; padding: 2px 6px; background: #667eea; color: white; border-radius: 10px; font-size: 11px; }
+        .tag-more { background: #5a6fd6; cursor: pointer; }
+        .tag-more:hover { background: #4a5fc0; }
+        .tags-popup { position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ddd; border-radius: 8px; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; min-width: 200px; }
         .tag-pending { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; background: #fff3cd; color: #856404; }
         .tag-none { color: #999; }
         .status-unavailable { background: #f8d7da; color: #721c24; }
@@ -236,13 +240,20 @@
                         <tr v-for="file in files" :key="file.id">
                             <td><input type="checkbox" class="checkbox" :value="file.id" v-model="selectedFiles" @change="updatePageAllState"></td>
                             <td>{{ file.name }}</td>
-                            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" :title="file.path">{{ file.path }}</td>
+                            <td style="max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" :title="file.path">{{ truncatePath(file.path) }}</td>
                             <td>{{ formatSize(file.size) }}</td>
                             <td>{{ file.extension }}</td>
-                            <td @click="showFileTags(file)" style="cursor:pointer;max-width:250px;">
+                            <td @click="showFileTags(file)" style="cursor:pointer;max-width:250px;position:relative;">
                                 <div v-if="file.tag_status === 'ready'" style="display:flex;flex-wrap:wrap;gap:3px;">
-                                    <span style="padding:2px 6px;background:#667eea;color:white;border-radius:10px;font-size:11px;" title="点击查看全部标签">
-                                        {{ file.tag_count }}个标签
+                                    <span v-for="tag in ((file.tag_preview || []).filter(t => t.shown))" :key="tag.name"
+                                          class="tag-badge"
+                                          :title="tag.name + ' (' + tag.category + ')'">
+                                        {{ tag.name }}
+                                    </span>
+                                    <span v-if="file.tag_count > 3"
+                                          class="tag-badge tag-more"
+                                          :title="getRemainingTagNames(file)">
+                                        +{{ file.tag_count - 3 }}
                                     </span>
                                 </div>
                                 <span v-else-if="file.tag_status === 'pending'" style="padding:2px 6px;background:#fff3cd;color:#856404;border-radius:10px;font-size:11px;">待标记</span>
@@ -461,6 +472,7 @@
                 const showSourceModal = ref(false);
                 const showTagsModal = ref(false);
                 const viewingFileTags = ref({ name: '', tags: [], summary: '' });
+                const tagsPopup = ref({ file: null, allTags: [], style: {} });
                 const aiProvider = ref(localStorage.getItem('aiProvider') || 'ollama');
                 const getApiKey = () => localStorage.getItem(`aiApiKey_${aiProvider.value}`) || '';
                 const setApiKey = (key) => localStorage.setItem(`aiApiKey_${aiProvider.value}`, key);
@@ -520,6 +532,45 @@
                     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
                     const i = Math.floor(Math.log(bytes) / Math.log(k));
                     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+
+                function truncatePath(path) {
+                    if (!path) return '';
+                    // 路径最大显示长度
+                    const maxLen = 45;
+                    if (path.length <= maxLen) return path;
+                    // 从短到长逐步找到最后一个完整的目录名
+                    const parts = path.split(/[/\\]/);
+                    const filename = parts.pop();
+                    let result = filename;
+                    // 从最后一个目录开始拼接，直到长度超过maxLen
+                    for (let i = parts.length - 1; i >= 0; i--) {
+                        const next = parts[i] + '/' + result;
+                        if (next.length > maxLen - 3) {
+                            return '...' + result;
+                        }
+                        result = next;
+                    }
+                    return '...' + result;
+                }
+
+                function getTagsTooltip(file) {
+                    if (!file.tag_preview || file.tag_preview.length === 0) {
+                        return file.tag_count ? `${file.tag_count}个标签` : '点击查看标签';
+                    }
+                    const names = file.tag_preview.map(t => t.name).join(', ');
+                    const remaining = file.tag_count - file.tag_preview.length;
+                    if (remaining > 0) {
+                        return `${names} 等${file.tag_count}个标签`;
+                    }
+                    return names;
+                }
+
+                function getRemainingTagNames(file) {
+                    if (!file.tag_preview || file.tag_count <= 3) return '点击查看全部标签';
+                    const remainingTags = (file.tag_preview || []).filter(t => !t.shown);
+                    if (remainingTags.length === 0) return '点击查看全部标签';
+                    return `剩余标签: ${remainingTags.map(t => t.name).join(', ')}`;
                 }
 
                 async function showFileTags(file) {
@@ -1210,7 +1261,7 @@
                     logs, stats,
                     aiAnalyzing, autoDetecting, aiMode, apiKey,
                     sourceStats, unavailableCount, checkingUnavailable,
-                    showAIModal, showSourceModal, aiProvider, aiApiKey, aiModel, aiBaseUrl,
+                    showAIModal, showSourceModal, showTagsModal, tagsPopup, aiProvider, aiApiKey, aiModel, aiBaseUrl,
                     aiResult, aiProgress, aiStatus, aiAnalysisResult, tagResult, availableModels,
                     scanRecords,
                     startScan, stopScan, loadFiles, computeMD5,
@@ -1222,7 +1273,7 @@
                     selectAllInPage, selectAllFiltered,
                     getStatusClass, getStatusText,
                     getProviderTip, getModelTip,
-                    debounceSearch, formatSize, formatDate
+                    debounceSearch, formatSize, formatDate, truncatePath, getTagsTooltip, getRemainingTagNames
                 };
             }
         }).mount('#app');

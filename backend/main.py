@@ -544,6 +544,8 @@ def _ai_organize_chunked(files, learned_rules, include_content, ai_provider, pro
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
+    if isinstance(exc, asyncio.CancelledError):
+        return JSONResponse(status_code=499, content={"error": "请求已取消"})
     return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(exc)}"})
 
 Base.metadata.create_all(bind=engine)
@@ -793,6 +795,28 @@ async def get_files(
         ).group_by(FileTag.file_id).all()
         tag_counts = {fid: count for fid, count in tag_count_rows}
 
+    # 预加载所有标签，并标注是否已显示
+    tag_all_data = {}
+    if file_ids:
+        from database import Tag
+        tag_rows = db.query(FileTag.file_id, Tag.name, Tag.category, FileTag.confidence).join(
+            Tag, Tag.id == FileTag.tag_id
+        ).filter(
+            FileTag.file_id.in_(file_ids)
+        ).order_by(FileTag.file_id, FileTag.confidence.desc()).all()
+
+        current_file_id = None
+        file_tags = []
+        for row in tag_rows:
+            if row[0] != current_file_id:
+                if current_file_id is not None and file_tags:
+                    tag_all_data[current_file_id] = file_tags
+                current_file_id = row[0]
+                file_tags = []
+            file_tags.append({'name': row[1], 'category': row[2], 'shown': len(file_tags) < 3})
+        if current_file_id is not None and file_tags:
+            tag_all_data[current_file_id] = file_tags
+
     db.close()
 
     return {
@@ -815,6 +839,7 @@ async def get_files(
             "source_path": e.source_path,
             "tag_status": e.tag_status,
             "tag_count": tag_counts.get(e.id, 0),
+            "tag_preview": tag_all_data.get(e.id, []),
             "content_summary": e.content_summary
         } for e in items]
     }
