@@ -1668,6 +1668,59 @@ async def batch_generate_tags(request: dict):
 
             success_count = 0
 
+            # 第一步：同批次内标签共享 - 基于文件名匹配
+            yield _send_sse({"type": "info", "message": "正在分析文件名相似性..."})
+            import re
+            def get_base_name(name):
+                """提取文件名的核心部分（去掉版本号、括号内容）"""
+                base = re.sub(r'[0-9]+', '', name.lower())
+                base = re.sub(r'\([^)]*\)', '', base)
+                base = re.sub(r'素材[0-9]*', '素材', base)
+                base = os.path.splitext(base)[0].strip()
+                return base
+
+            # 按base_name分组
+            base_name_groups = {}
+            for f in all_files:
+                base = get_base_name(f.name)
+                if len(base) >= 3:
+                    if base not in base_name_groups:
+                        base_name_groups[base] = []
+                    base_name_groups[base].append(f)
+
+            # 对每组文件，如果存在已打标签的相似文件引用标签
+            reused_count = 0
+            for base, files_in_group in base_name_groups.items():
+                if len(files_in_group) <= 1:
+                    continue
+
+                # 查找组内是否有已打标签的文件（tag_status == 'ready' 表明已打标签）
+                files_with_tags_in_group = [f for f in files_in_group if f.tag_status == 'ready']
+                if not files_with_tags_in_group:
+                    continue
+
+                # 使用第一个已打标签的文件的标签
+                source_file = files_with_tags_in_group[0]
+                source_tags = tagger.find_similar_file_tags(db, source_file.name)
+                if source_tags:
+                    for target_file in files_in_group:
+                        if target_file.id != source_file.id:
+                            tagger.apply_tags_from_similar(db, target_file, source_tags)
+                            reused_count += 1
+                            yield _send_sse({
+                                "type": "info",
+                                "message": f"共享标签: {target_file.name}"
+                            })
+
+            yield _send_sse({"type": "info", "message": f"共享标签完成，已处理 {reused_count} 个文件"})
+
+            # 重新获取文件列表（状态可能已更新）
+            all_files = [f for f in all_files if f.tag_status != 'ready']
+            total = len(all_files)
+            if total == 0:
+                yield _send_sse({"type": "done", "message": "所有文件已通过标签共享完成"})
+                return
+
             # 逐文件处理，实时更新进度
             for idx, file_entry in enumerate(all_files):
                 yield _send_sse({
