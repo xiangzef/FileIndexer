@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FileIndexer - AI 助手</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; color: #333; height: 100vh; overflow: hidden; }
+        .container { max-width: 100%; height: 100vh; display: flex; flex-direction: column; }
+        header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        header h1 { font-size: 1.2em; }
+        nav { display: flex; gap: 10px; }
+        nav a { color: white; text-decoration: none; padding: 5px 10px; background: rgba(255,255,255,0.2); border-radius: 6px; font-size: 13px; }
+        nav a:hover { background: rgba(255,255,255,0.3); }
+        .main-content { display: flex; flex: 1; overflow: hidden; }
+        .left-panel { width: 320px; background: white; border-right: 1px solid #eee; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+        .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: white; }
+        .model-selector { padding: 12px 15px; border-bottom: 1px solid #eee; }
+        .model-selector label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 13px; }
+        .model-selector select { width: 100%; padding: 7px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+        .records-section { padding: 12px 15px; overflow-y: auto; flex: 1; }
+        .panel-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: #666; display: flex; justify-content: space-between; align-items: center; }
+        .scan-record-item { padding: 8px 10px; background: #f8f9fa; border-radius: 6px; margin-bottom: 6px; cursor: pointer; transition: all 0.2s; }
+        .scan-record-item:hover { background: #e9ecef; }
+        .scan-record-item.active { background: #667eea; color: white; }
+        .scan-record-item .record-name { font-weight: 500; margin-bottom: 2px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .scan-record-item .record-meta { font-size: 11px; opacity: 0.8; }
+
+        /* 分页文件列表 */
+        .file-list-section { padding: 10px 15px; border-top: 1px solid #eee; }
+        .file-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .file-list-header .title { font-size: 12px; font-weight: 600; color: #666; }
+        .file-list-header .count { font-size: 11px; color: #999; }
+        .file-list-actions { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .file-list-actions .btn { padding: 4px 8px; font-size: 11px; }
+        .page-selector { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .page-selector label { font-size: 11px; }
+        .page-selector select { padding: 4px 6px; font-size: 11px; border: 1px solid #ddd; border-radius: 4px; }
+        .page-select-all { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #667eea; cursor: pointer; }
+        .file-list { max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; }
+        .file-item { display: flex; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f5f5f5; }
+        .file-item:last-child { border-bottom: none; }
+        .file-item input[type="checkbox"] { margin-right: 6px; flex-shrink: 0; }
+        .file-item .file-name { flex: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+        .file-item .file-tags { font-size: 10px; color: #667eea; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: 8px; font-size: 11px; }
+        .pagination button { padding: 3px 8px; font-size: 11px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination button.active { background: #667eea; color: white; border-color: #667eea; }
+        .pagination .page-info { color: #666; }
+
+        .selected-count { padding: 6px 10px; background: #667eea; color: white; border-radius: 12px; font-size: 11px; margin-bottom: 8px; display: inline-block; }
+        .context-actions { margin-bottom: 8px; }
+        .learned-info { font-size: 11px; color: #28a745; margin-bottom: 6px; padding: 6px 8px; background: #f0f9f0; border-radius: 4px; }
+
+        /* 聊天区域 */
+        .chat-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .chat-header { padding: 10px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .chat-header .left-info { display: flex; align-items: center; gap: 12px; }
+        .chat-header .model-name { font-weight: 500; color: #333; font-size: 13px; }
+        .chat-header .model-name.none { color: #999; }
+        .chat-header .ctx-count { font-size: 11px; color: #667eea; }
+        .chat-header .right-actions { display: flex; gap: 8px; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
+        .empty-hint { text-align: center; padding: 60px 20px; color: #999; }
+        .empty-hint p { margin-bottom: 8px; }
+        .message { margin-bottom: 12px; display: flex; }
+        .message.user { justify-content: flex-end; }
+        .message.assistant { justify-content: flex-start; }
+        .message-content { max-width: 75%; padding: 8px 12px; border-radius: 10px; line-height: 1.5; font-size: 13px; }
+        .message.user .message-content { background: #667eea; color: white; border-bottom-right-radius: 3px; }
+        .message.assistant .message-content { background: #f1f3f4; color: #333; border-bottom-left-radius: 3px; white-space: pre-wrap; }
+        .loading-indicator { display: flex; align-items: center; gap: 6px; color: #667eea; }
+        .loading-dots { display: flex; gap: 2px; }
+        .loading-dots span { width: 5px; height: 5px; background: #667eea; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out; }
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        .chat-input-area { padding: 10px 20px; border-top: 1px solid #eee; display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+        .chat-input { flex: 1; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; resize: none; min-height: 40px; max-height: 100px; }
+        .chat-input:focus { outline: none; border-color: #667eea; }
+        .btn { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.3s; white-space: nowrap; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5a6fd6; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-sm { padding: 5px 10px; font-size: 11px; }
+        .btn-xs { padding: 3px 6px; font-size: 10px; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .conv-tab { display: flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; background: #eee; color: #666; white-space: nowrap; }
+        .conv-tab:hover { background: #e0e0e0; }
+        .conv-tab.active { background: #667eea; color: white; }
+        .conv-tab .conv-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+        .conv-tab .conv-delete { display: none; width: 14px; height: 14px; border-radius: 50%; background: #ff4444; color: white; font-size: 10px; line-height: 14px; text-align: center; cursor: pointer; flex-shrink: 0; }
+        .conv-tab:hover .conv-delete { display: flex; align-items: center; justify-content: center; }
+        .conv-tab .conv-delete:hover { background: #cc0000; }
+
+        /* 提示词生成区域 */
+        .prompt-section { padding: 10px 20px; border-top: 1px solid #eee; background: #fafafa; flex-shrink: 0; }
+        .prompt-row { display: flex; gap: 10px; align-items: flex-start; }
+        .prompt-target { display: flex; align-items: center; gap: 6px; }
+        .prompt-target label { font-size: 12px; font-weight: 500; }
+        .prompt-target select { padding: 5px 8px; border: 1px solid #ddd; border-radius: 5px; font-size: 12px; }
+        .prompt-textarea { flex: 1; }
+        .prompt-textarea textarea { width: 100%; height: 70px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace; font-size: 11px; resize: none; }
+        .prompt-actions { display: flex; gap: 6px; align-items: center; }
+        .empty-state { text-align: center; padding: 15px; color: #999; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <header>
+                <h1>💬 AI 助手</h1>
+                <nav>
+                    <a href="/">📋 文件管理</a>
+                    <a href="/ai-organize.html">🤖 AI整理</a>
+                    <a href="/search.html">🔍 素材搜索</a>
+                </nav>
+            </header>
+
+            <div class="main-content">
+                <!-- 左侧面板 -->
+                <div class="left-panel">
+                    <div class="model-selector">
+                        <label>选择模型</label>
+                        <select v-model="selectedModel">
+                            <option value="">请选择...</option>
+                            <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
+                        </select>
+                    </div>
+
+                    <div class="records-section">
+                        <div class="panel-title">扫描记录</div>
+                        <div v-if="scanRecords.length === 0" class="empty-state">暂无扫描记录</div>
+                        <div v-for="record in scanRecords" :key="record.id"
+                             class="scan-record-item"
+                             :class="{active: selectedRecord && selectedRecord.id === record.id}"
+                             @click="selectRecord(record)">
+                            <div class="record-name" :title="record.scan_path">{{ truncatePath(record.scan_path) }}</div>
+                            <div class="record-meta">{{ record.total_files }} 个文件</div>
+                        </div>
+                    </div>
+
+                    <!-- 文件列表（分页选择） -->
+                    <div class="file-list-section" v-if="selectedRecord">
+                        <div class="file-list-header">
+                            <span class="title">📁 文件列表</span>
+                            <span class="count">共 {{ totalFiles }} 个</span>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="file-list-actions">
+                            <button class="btn btn-primary btn-sm" @click="selectAllOnPage" :disabled="files.length === 0">选当前页</button>
+                            <button class="btn btn-secondary btn-sm" @click="selectAllPages" :disabled="totalFiles === 0">选全部</button>
+                            <button class="btn btn-secondary btn-sm" @click="clearSelection">清空</button>
+                        </div>
+
+                        <!-- 页码选择 -->
+                        <div style="margin-bottom:6px;">
+                            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                                <label style="font-size:11px;">跳转：</label>
+                                <select v-model="currentPage" @change="loadFilesPage" title="跳转到指定页面" style="padding:3px 6px;font-size:11px;border:1px solid #ddd;border-radius:4px;">
+                                    <option v-for="p in totalPages" :key="p" :value="p">第 {{ p }} 页</option>
+                                </select>
+                                <button class="btn btn-xs btn-secondary" @click="selectAllPages" :disabled="totalFiles === 0">全选</button>
+                                <button class="btn btn-xs btn-secondary" @click="selectCurrentPageOnly" :disabled="files.length === 0">选当前页</button>
+                            </div>
+                            <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:50px;overflow-y:auto;">
+                                <label v-for="p in totalPages" :key="p" style="display:flex;align-items:center;gap:2px;font-size:10px;cursor:pointer;">
+                                    <input type="checkbox" :value="p" v-model="selectedPages" @change="onPageSelectionChange"> {{p}}
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 分页导航 -->
+                        <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:6px;">
+                            <button class="btn btn-xs btn-secondary" @click="prevPage" :disabled="currentPage <= 1">上一页</button>
+                            <span style="font-size:11px;color:#666;">{{ currentPage }} / {{ totalPages }}</span>
+                            <button class="btn btn-xs btn-secondary" @click="nextPage" :disabled="currentPage >= totalPages">下一页</button>
+                        </div>
+
+                        <!-- 已选计数 -->
+                        <div class="selected-count">已选 {{ selectedFiles.length }} 个文件</div>
+
+                        <!-- 学习按钮 -->
+                        <div class="context-actions">
+                            <button class="btn btn-success btn-sm" @click="learnFiles" :disabled="selectedFiles.length === 0 || learning || !selectedModel" style="width:100%;">
+                                {{ learning ? '学习中...' : '📚 学习选中的文件' }}
+                            </button>
+                        </div>
+                        <div v-if="learning && learnProgress" style="font-size:10px;color:#667eea;margin-bottom:4px;">{{ learnProgress }}</div>
+                        <div v-if="learning" style="height:4px;background:#eee;border-radius:2px;margin-bottom:6px;">
+                            <div style="height:100%;background:#667eea;border-radius:2px;transition:width 0.3s;" :style="{width: learnPercentage + '%'}"></div>
+                        </div>
+                        <div v-if="!learning && learnProgress" style="font-size:10px;color:#28a745;margin-bottom:6px;">{{ learnProgress }}</div>
+                        <div v-if="globalLearnedContext" class="learned-info">
+                            ✓ 已学习 {{ globalLearnedContext.fileCount }} 个文件（全局）
+                        </div>
+
+                        <!-- 文件列表 -->
+                        <div class="file-list">
+                            <div v-for="file in files" :key="file.id" class="file-item">
+                                <input type="checkbox" :value="file.id" v-model="selectedFiles" @change="updateSelectedFiles">
+                                <div class="file-name" :title="file.name">{{ file.name }}</div>
+                                <div class="file-tags" v-if="file.tags && file.tags.length" :title="file.tags.map(t=>t.name).join(', ')">
+                                    {{ file.tags.slice(0,1).map(t=>t.name).join('') }}
+                                    <span v-if="file.tags.length > 1">+{{ file.tags.length-1 }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 分页信息 -->
+                        <div style="text-align:center;font-size:10px;color:#999;margin-top:4px;">
+                            {{ totalFiles }} 个文件，共 {{ totalPages }} 页
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧面板 -->
+                <div class="right-panel">
+                    <div class="chat-section">
+                        <div class="chat-header">
+                            <div class="left-info">
+                                <span class="model-name" :class="{none: !selectedModel}">
+                                    {{ selectedModel || '请选择模型' }}
+                                </span>
+                                <span class="ctx-count" v-if="activeContextFileCount > 0">
+                                    {{ activeContextFileCount }} 个文件上下文
+                                </span>
+                            </div>
+                            <div class="right-actions">
+                                <button class="btn btn-secondary btn-sm" @click="startNewConversation" :disabled="!selectedModel">🆕 新建</button>
+                            </div>
+                        </div>
+
+                        <!-- 对话历史Tab -->
+                        <div style="display:flex;gap:2px;padding:6px 20px;background:#fafafa;border-bottom:1px solid #eee;overflow-x:auto;flex-shrink:0;">
+                            <div v-for="conv in conversations"
+                                 :key="conv.id"
+                                 :class="['conv-tab', conv.id === currentConversationId ? 'active' : '']"
+                                 @click="switchConversation(conv.id)"
+                                 @dblclick="startRenameConversation(conv)">
+                                <span v-if="renamingConvId !== conv.id" class="conv-name">{{ conv.name }}</span>
+                                <input v-else type="text" v-model="renamingName" @blur="finishRenameConversation(conv)"
+                                       @keydown.enter.prevent="finishRenameConversation(conv)" @click.stop
+                                       style="width:60px;font-size:10px;border:1px solid #667eea;border-radius:2px;padding:1px 4px;">
+                                <span class="conv-delete" @click.stop="deleteConversation(conv.id)" title="删除">×</span>
+                            </div>
+                            <button class="btn btn-xs btn-secondary" @click="startNewConversation" style="flex-shrink:0;">+</button>
+                        </div>
+
+                        <div class="chat-messages" ref="messagesContainer">
+                            <div v-if="currentConversation.messages.length === 0" class="empty-hint">
+                                <p>🤖 开始对话吧！</p>
+                                <p style="font-size:12px;">已学习的文件上下文会自动带入新对话</p>
+                            </div>
+                            <div v-for="(msg, idx) in currentConversation.messages" :key="idx" class="message" :class="msg.role">
+                                <div class="message-content">{{ msg.content }}</div>
+                            </div>
+                            <div v-if="loading" class="message assistant">
+                                <div class="message-content">
+                                    <div class="loading-indicator">
+                                        <div class="loading-dots"><span></span><span></span><span></span></div>
+                                        <span>思考中...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="chat-input-area">
+                            <textarea class="chat-input"
+                                      v-model="inputMessage"
+                                      @keydown.enter.exact.prevent="sendMessage"
+                                      placeholder="输入问题，按 Enter 发送..."
+                                      rows="1"></textarea>
+                            <button class="btn btn-primary" @click="sendMessage" :disabled="!inputMessage.trim() || loading || !selectedModel">发送</button>
+                        </div>
+                    </div>
+
+                    <!-- 提示词生成区域 -->
+                    <div class="prompt-section">
+                        <div class="panel-title">📝 提示词生成</div>
+                        <div class="prompt-row">
+                            <div class="prompt-target">
+                                <label>目标：</label>
+                                <select v-model="promptTarget">
+                                    <option value="qwen">通义千问</option>
+                                    <option value="deepseek">DeepSeek</option>
+                                    <option value="openai">ChatGPT</option>
+                                </select>
+                            </div>
+                            <div class="prompt-textarea">
+                                <textarea v-model="promptInput" placeholder="输入你想让AI扮演的角色或任务描述..."></textarea>
+                            </div>
+                            <div class="prompt-actions">
+                                <button class="btn btn-secondary btn-sm" @click="generatePrompt">生成</button>
+                                <button class="btn btn-primary btn-sm" @click="copyPrompt" :disabled="!generatedPrompt">复制</button>
+                            </div>
+                        </div>
+                        <div v-if="generatedPrompt" style="margin-top:6px;font-size:11px;color:#28a745;">✓ 提示词已生成，点击复制使用</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, watch, nextTick } = Vue;
+
+        const PAGE_SIZE = 100;
+        const STORAGE_KEY = 'fileindexer_learned_context';
+
+        createApp({
+            setup() {
+                const scanRecords = ref([]);
+                const selectedRecord = ref(null);
+                const selectedModel = ref('');
+                const availableModels = ref([]);
+                const inputMessage = ref('');
+                const loading = ref(false);
+                const messagesContainer = ref(null);
+                const promptTarget = ref('qwen');
+                const promptInput = ref('');
+                const generatedPrompt = ref('');
+
+                // 文件分页
+                const files = ref([]);
+                const totalFiles = ref(0);
+                const currentPage = ref(1);
+                const totalPages = computed(() => Math.max(1, Math.ceil(totalFiles.value / PAGE_SIZE)));
+                const selectPageMode = ref(false);
+                const selectedPages = ref([]);
+
+                // 已选文件
+                const selectedFiles = ref([]);
+
+                // 学习相关
+                const learning = ref(false);
+                const learnProgress = ref('');
+                const learnPercentage = ref(0);
+
+                // 全局学习的上下文（持久化到localStorage）
+                const globalLearnedContext = ref(null);
+                const globalLearnedFilesData = ref([]);
+
+                // 每批发送给AI的文件数（考虑上下文限制）
+                const CHUNK_SIZE = 20;
+
+                // 多会话
+                const conversations = ref([{ id: 1, name: '新对话', messages: [] }]);
+                const currentConversationId = ref(1);
+
+                const currentConversation = computed(() => {
+                    return conversations.value.find(c => c.id === currentConversationId.value) || conversations.value[0];
+                });
+
+                const activeContextFileCount = computed(() => {
+                    return globalLearnedContext.value?.fileCount || 0;
+                });
+
+                // 工具函数
+                function truncatePath(path) {
+                    if (!path) return '';
+                    const maxLen = 20;
+                    if (path.length <= maxLen) return path;
+                    const parts = path.split(/[/\\]/);
+                    return '...' + parts.slice(-2).join('/');
+                }
+
+                function loadGlobalLearnedContext() {
+                    try {
+                        const saved = localStorage.getItem(STORAGE_KEY);
+                        if (saved) {
+                            const data = JSON.parse(saved);
+                            globalLearnedContext.value = data.context;
+                            globalLearnedFilesData.value = data.files || [];
+                        }
+                    } catch (e) {
+                        console.error('加载学习上下文失败:', e);
+                    }
+                }
+
+                function saveGlobalLearnedContext() {
+                    try {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                            context: globalLearnedContext.value,
+                            files: globalLearnedFilesData.value
+                        }));
+                    } catch (e) {
+                        console.error('保存学习上下文失败:', e);
+                    }
+                }
+
+                async function loadModels() {
+                    try {
+                        const res = await fetch('/ai/models?provider=ollama&base_url=http://localhost:11434');
+                        const data = await res.json();
+                        availableModels.value = data.models || [];
+                    } catch (e) {
+                        console.error('加载模型失败:', e);
+                    }
+                }
+
+                async function loadScanRecords() {
+                    try {
+                        const res = await fetch('/scan-records');
+                        const data = await res.json();
+                        scanRecords.value = data.records || [];
+
+                        // 检查当前选中的扫描记录是否已被删除
+                        if (selectedRecord.value) {
+                            const stillExists = scanRecords.value.find(r => r.id === selectedRecord.value.id);
+                            if (!stillExists) {
+                                selectedRecord.value = null;
+                                files.value = [];
+                                selectedFiles.value = [];
+                                globalLearnedContext.value = null;
+                                globalLearnedFilesData.value = [];
+                                alert('当前扫描记录已被删除，学习上下文不再生效');
+                            }
+                        }
+                    } catch (e) {
+                        console.error('加载扫描记录失败:', e);
+                    }
+                }
+
+                async function selectRecord(record) {
+                    selectedRecord.value = record;
+                    selectedFiles.value = [];
+                    selectedPages.value = [];
+                    currentPage.value = 1;
+                    totalFiles.value = record.total_files || 0;
+                    await loadFilesPage();
+                }
+
+                async function loadFilesPage() {
+                    if (!selectedRecord.value) return;
+                    try {
+                        const offset = (currentPage.value - 1) * PAGE_SIZE;
+                        const res = await fetch(`/scan-record/${selectedRecord.value.id}/files?offset=${offset}&limit=${PAGE_SIZE}`);
+                        const data = await res.json();
+                        files.value = data.files || [];
+
+                        // 加载标签
+                        for (let file of files.value) {
+                            try {
+                                const tagRes = await fetch(`/files/${file.id}/tags`);
+                                const tagData = await tagRes.json();
+                                file.tags = tagData.tags || [];
+                            } catch (e) {
+                                file.tags = [];
+                            }
+                        }
+
+                        // 如果是选择整页模式，自动选中当前页
+                        if (selectPageMode.value) {
+                            selectedFiles.value = [...new Set([...selectedFiles.value, ...files.value.map(f => f.id)])];
+                        }
+                    } catch (e) {
+                        console.error('加载文件失败:', e);
+                    }
+                }
+
+                function toggleSelectPageMode() {
+                    if (selectPageMode.value) {
+                        selectAllOnPage();
+                    }
+                }
+
+                function selectAllOnPage() {
+                    const pageFileIds = files.value.map(f => f.id);
+                    // 只选中当前页显示的文件
+                    selectedFiles.value = [...new Set([...selectedFiles.value, ...pageFileIds])];
+                }
+
+                async function selectAllPages() {
+                    if (!selectedRecord.value) return;
+                    selectedFiles.value = [];
+                    // 分页加载所有文件ID
+                    const allIds = [];
+                    let offset = 0;
+                    while (true) {
+                        const res = await fetch(`/scan-record/${selectedRecord.value.id}/files?offset=${offset}&limit=500`);
+                        const data = await res.json();
+                        if (!data.files || data.files.length === 0) break;
+                        allIds.push(...data.files.map(f => f.id));
+                        offset += 500;
+                        if (data.files.length < 500) break;
+                    }
+                    selectedFiles.value = allIds;
+                }
+
+                function clearSelection() {
+                    selectedFiles.value = [];
+                    selectedPages.value = [];
+                }
+
+                function selectCurrentPageOnly() {
+                    selectedFiles.value = files.value.map(f => f.id);
+                    selectedPages.value = [currentPage.value];
+                }
+
+                async function onPageSelectionChange() {
+                    // 根据选中的页面，加载对应页面的文件并选中
+                    if (selectedPages.value.length === 0) return;
+                    const newSelected = [];
+                    for (const pageNum of selectedPages.value) {
+                        const offset = (pageNum - 1) * PAGE_SIZE;
+                        const res = await fetch(`/scan-record/${selectedRecord.value.id}/files?offset=${offset}&limit=${PAGE_SIZE}`);
+                        const data = await res.json();
+                        if (data.files) {
+                            newSelected.push(...data.files.map(f => f.id));
+                        }
+                    }
+                    // 合并到已选文件
+                    selectedFiles.value = [...new Set([...selectedFiles.value, ...newSelected])];
+                }
+
+                function updateSelectedFiles() {
+                    // 确保只保留当前扫描记录中的文件
+                    const fileIds = new Set(files.value.map(f => f.id));
+                    selectedFiles.value = selectedFiles.value.filter(id => fileIds.has(id));
+                }
+
+                function prevPage() {
+                    if (currentPage.value > 1) {
+                        currentPage.value--;
+                        loadFilesPage();
+                    }
+                }
+
+                function nextPage() {
+                    if (currentPage.value < totalPages.value) {
+                        currentPage.value++;
+                        loadFilesPage();
+                    }
+                }
+
+                async function learnFiles() {
+                    if (selectedFiles.value.length === 0) {
+                        alert('请先选择要学习的文件');
+                        return;
+                    }
+                    if (!selectedModel.value) {
+                        alert('请先选择AI模型');
+                        return;
+                    }
+                    learning.value = true;
+                    learnProgress.value = '正在获取文件信息...';
+                    learnPercentage.value = 0;
+
+                    try {
+                        const res = await fetch('/ai/learn', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                file_ids: selectedFiles.value,
+                                record_id: selectedRecord.value?.id
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (data.error) {
+                            learnProgress.value = '错误: ' + data.error;
+                            return;
+                        }
+
+                        globalLearnedFilesData.value = data.files || [];
+                        const total = globalLearnedFilesData.value.length;
+
+                        if (total === 0) {
+                            learnProgress.value = '没有文件需要学习';
+                            return;
+                        }
+
+                        learnProgress.value = `正在让AI学习理解 ${total} 个文件...`;
+                        learnPercentage.value = 5;
+
+                        // 构建文件摘要（包含完整路径）
+                        const fileSummary = globalLearnedFilesData.value.map(f => {
+                            const tags = f.tags && f.tags.length > 0
+                                ? f.tags.map(t => t.name).join(', ')
+                                : '无标签';
+                            return { id: f.id, name: f.name, path: f.path, tags: tags };
+                        });
+
+                        // 分批让AI学习理解这些文件
+                        const chunks = [];
+                        for (let i = 0; i < fileSummary.length; i += CHUNK_SIZE) {
+                            chunks.push(fileSummary.slice(i, i + CHUNK_SIZE));
+                        }
+
+                        let learnedCount = 0;
+                        for (let i = 0; i < chunks.length; i++) {
+                            const chunk = chunks[i];
+                            learnProgress.value = `AI学习中 ${i + 1}/${chunks.length} 批次 (${chunk.length}个文件)...`;
+                            learnPercentage.value = 5 + Math.round((i + 1) * 85 / chunks.length);
+
+                            // 发送一小批文件信息给AI，让它"认识"这些文件
+                            const chunkPrompt = `请熟记以下文件，回复"已了解"：
+${chunk.map(f => `📄 ${f.name}\n   路径: ${f.path}\n   标签: ${f.tags}`).join('\n\n')}`;
+
+                            try {
+                                await fetch('/ai/chat', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        provider: 'ollama',
+                                        model: selectedModel.value,
+                                        messages: [
+                                            { role: "system", content: "你是一个文件管理助手，需要熟记这些文件信息以便后续推荐。" },
+                                            { role: "user", content: chunkPrompt }
+                                        ]
+                                    })
+                                });
+                                learnedCount += chunk.length;
+                            } catch (e) {
+                                console.error(`批次${i+1}学习失败:`, e);
+                            }
+
+                            // 短暂等待，让AI处理
+                            await new Promise(r => setTimeout(r, 200));
+                        }
+
+                        globalLearnedContext.value = {
+                            fileCount: total,
+                            summary: `已学习 ${total} 个文件`,
+                            systemPrompt: buildSystemPrompt(fileSummary),
+                            fileSummary: fileSummary
+                        };
+
+                        saveGlobalLearnedContext();
+                        learnProgress.value = `✓ 学习完成！AI已理解 ${learnedCount} 个文件`;
+                        learnPercentage.value = 100;
+
+                    } catch (e) {
+                        learnProgress.value = '学习失败: ' + e.message;
+                        console.error('学习失败:', e);
+                    } finally {
+                        setTimeout(() => {
+                            learning.value = false;
+                        }, 2000);
+                    }
+                }
+
+                function buildSystemPrompt(fileSummary) {
+                    const fileList = fileSummary.map(f => `📄 ${f.name}\n   路径: ${f.path}\n   标签: ${f.tags}`).join('\n\n');
+                    return `你是文件管理助手，熟记以下所有文件信息：
+
+${fileList}
+
+【重要规则】
+1. 当用户询问某个文件时，先在上述列表中精确查找文件名，找到则回复文件路径
+2. 如果文件不在列表中，回复"该文件不在当前学习的文件列表中"
+3. 根据用户的描述推荐相关文件并说明理由
+4. 回答要简洁、准确`;
+                }
+
+                function startNewConversation() {
+                    const newId = Date.now();
+                    const convNumber = conversations.value.length + 1;
+                    conversations.value.push({
+                        id: newId,
+                        name: `新对话${convNumber}`,
+                        messages: []
+                    });
+                    currentConversationId.value = newId;
+                }
+
+                const renamingConvId = ref(null);
+                const renamingName = ref('');
+
+                function startRenameConversation(conv) {
+                    renamingConvId.value = conv.id;
+                    renamingName.value = conv.name;
+                }
+
+                function finishRenameConversation(conv) {
+                    if (renamingName.value.trim()) {
+                        conv.name = renamingName.value.trim();
+                    }
+                    renamingConvId.value = null;
+                }
+
+                function deleteConversation(convId) {
+                    if (conversations.value.length <= 1) {
+                        alert('至少保留一个对话');
+                        return;
+                    }
+                    const idx = conversations.value.findIndex(c => c.id === convId);
+                    if (idx >= 0) {
+                        conversations.value.splice(idx, 1);
+                        if (currentConversationId.value === convId) {
+                            currentConversationId.value = conversations.value[0].id;
+                        }
+                    }
+                }
+
+                function switchConversation(convId) {
+                    currentConversationId.value = convId;
+                    scrollToBottom();
+                }
+
+                async function sendMessage() {
+                    if (!inputMessage.value.trim() || loading.value || !selectedModel.value) return;
+
+                    const userMessage = inputMessage.value.trim();
+                    inputMessage.value = '';
+                    currentConversation.value.messages.push({ role: 'user', content: userMessage });
+                    scrollToBottom();
+                    loading.value = true;
+
+                    try {
+                        // 先尝试查找用户询问的文件
+                        let systemPrompt = '你是文件管理助手。';
+                        let fileInfo = '';
+
+                        // 调用后端API查找文件
+                        try {
+                            const findRes = await fetch('/ai/find-file', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ file_name: userMessage })
+                            });
+                            const findData = await findRes.json();
+                            if (findData.found && findData.files && findData.files.length > 0) {
+                                fileInfo = findData.files.map(f =>
+                                    `📄 ${f.name}\n   路径: ${f.path}\n   标签: ${f.tags}`
+                                ).join('\n\n');
+                            }
+                        } catch (e) {
+                            console.error('查找文件失败:', e);
+                        }
+
+                        // 如果有全局学习的上下文或查找到的文件信息，构建系统提示
+                        if (globalLearnedContext.value || fileInfo) {
+                            if (fileInfo) {
+                                systemPrompt = `你是文件管理助手。以下是你管理的文件信息：\n\n${fileInfo}`;
+                                if (globalLearnedContext.value) {
+                                    systemPrompt += '\n\n---\n【其他已学习的文件】\n' + globalLearnedContext.value.systemPrompt.split('【重要规则】')[0];
+                                }
+                            } else {
+                                systemPrompt = globalLearnedContext.value.systemPrompt;
+                            }
+                        }
+
+                        const response = await fetch('/ai/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                provider: 'ollama',
+                                model: selectedModel.value,
+                                messages: [
+                                    { role: 'system', content: systemPrompt },
+                                    { role: 'user', content: userMessage }
+                                ]
+                            })
+                        });
+
+                        const data = await response.json();
+                        currentConversation.value.messages.push({ role: 'assistant', content: data.response || '抱歉，没有收到回复。' });
+                    } catch (e) {
+                        currentConversation.value.messages.push({ role: 'assistant', content: '错误：' + e.message });
+                    } finally {
+                        loading.value = false;
+                        scrollToBottom();
+                    }
+                }
+
+                function scrollToBottom() {
+                    nextTick(() => {
+                        if (messagesContainer.value) {
+                            messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+                        }
+                    });
+                }
+
+                function generatePrompt() {
+                    if (!promptInput.value.trim()) {
+                        alert('请输入提示词内容');
+                        return;
+                    }
+                    const target = promptTarget.value;
+                    if (target === 'qwen') {
+                        generatedPrompt.value = `你是文件管理助手。
+
+# 背景
+${promptInput.value}
+
+# 要求
+请根据上述描述，推荐相关的文件并说明理由。`;
+                    } else if (target === 'deepseek') {
+                        generatedPrompt.value = `[AI Persona]
+You are a file management assistant.
+
+[Task Description]
+${promptInput.value}
+
+[Requirements]
+Recommend relevant files and explain why.`;
+                    } else {
+                        generatedPrompt.value = `You are a file management assistant.
+
+Task:
+${promptInput.value}
+
+Please recommend relevant files and explain your reasoning.`;
+                    }
+                }
+
+                function copyPrompt() {
+                    if (!generatedPrompt.value) return;
+                    navigator.clipboard.writeText(generatedPrompt.value).then(() => {
+                        alert('已复制到剪贴板！');
+                    });
+                }
+
+                // 初始化
+                loadModels();
+                loadScanRecords();
+                loadGlobalLearnedContext();
+
+                return {
+                    scanRecords, selectedRecord, selectedModel, availableModels,
+                    inputMessage, loading, messagesContainer,
+                    promptTarget, promptInput, generatedPrompt,
+                    files, totalFiles, currentPage, totalPages, selectPageMode, selectedPages,
+                    selectedFiles, learning, learnProgress, learnPercentage,
+                    globalLearnedContext, globalLearnedFilesData,
+                    conversations, currentConversationId, currentConversation, activeContextFileCount,
+                    truncatePath, selectRecord, loadFilesPage,
+                    selectAllOnPage, selectAllPages, clearSelection, selectCurrentPageOnly, updateSelectedFiles,
+                    onPageSelectionChange,
+                    prevPage, nextPage, learnFiles,
+                    startNewConversation, switchConversation, deleteConversation,
+                    startRenameConversation, finishRenameConversation,
+                    renamingConvId, renamingName,
+                    sendMessage, generatePrompt, copyPrompt
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

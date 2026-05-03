@@ -1352,12 +1352,14 @@ async def batch_restore_files(request: dict):
     return {"restored_count": count}
 
 @app.get("/scan-record/{record_id}/files")
-async def get_scan_record_files(record_id: int):
+async def get_scan_record_files(record_id: int, offset: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000)):
     """
-    获取指定扫描记录下的所有文件
+    获取指定扫描记录下的所有文件（支持分页）
     """
     db = SessionLocal()
-    files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+    query = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id)
+    total = query.count()
+    files = query.order_by(FileEntry.id).offset(offset).limit(limit).all()
     result = []
     for f in files:
         result.append({
@@ -1370,7 +1372,7 @@ async def get_scan_record_files(record_id: int):
             "status": f.status
         })
     db.close()
-    return {"files": result}
+    return {"files": result, "total": total, "offset": offset, "limit": limit}
 
 @app.post("/ai/organize/plan")
 async def generate_organize_plan(request: dict):
@@ -2075,6 +2077,183 @@ async def get_tagged_files(
         "page_size": page_size,
         "files": files_with_tags
     }
+
+
+@app.post("/ai/learn")
+async def learn_files_from_context(request: dict):
+    """
+    学习文件索引和标签，构建AI上下文
+    返回文件的名称、路径、标签信息，用于AI理解文件库
+    """
+    file_ids = request.get("file_ids", [])
+    record_id = request.get("record_id")
+
+    db = SessionLocal()
+    try:
+        if file_ids:
+            # 分批获取文件
+            if len(file_ids) > 500:
+                all_files = []
+                for i in range(0, len(file_ids), 500):
+                    batch = file_ids[i:i+500]
+                    batch_files = db.query(FileEntry).filter(FileEntry.id.in_(batch)).all()
+                    all_files.extend(batch_files)
+            else:
+                all_files = db.query(FileEntry).filter(FileEntry.id.in_(file_ids)).all()
+        elif record_id:
+            all_files = db.query(FileEntry).filter(FileEntry.scan_record_id == record_id).all()
+        else:
+            return {"files": [], "total": 0, "error": "需要提供file_ids或record_id"}
+
+        # 获取标签信息
+        files_with_tags = []
+        for f in all_files:
+            tags = db.query(Tag.name, Tag.category).join(
+                FileTag, Tag.id == FileTag.tag_id
+            ).filter(FileTag.file_id == f.id).order_by(FileTag.confidence.desc()).all()
+
+            files_with_tags.append({
+                "id": f.id,
+                "name": f.name,
+                "path": f.path,
+                "extension": f.extension,
+                "size": f.size,
+                "tags": [{"name": t[0], "category": t[1]} for t in tags]
+            })
+
+        # 记录学习日志
+        logger.info(f"AI学习: {len(files_with_tags)} 个文件")
+
+        return {
+            "files": files_with_tags,
+            "total": len(files_with_tags)
+        }
+    finally:
+        db.close()
+
+
+@app.post("/ai/find-file")
+async def find_file_by_name(request: dict):
+    """
+    根据文件名查找文件信息（用于AI回答用户询问）
+    """
+    file_name = request.get("file_name", "")
+    if not file_name:
+        return {"found": False, "error": "需要提供文件名"}
+
+    db = SessionLocal()
+    try:
+        files = db.query(FileEntry).filter(
+            FileEntry.name.contains(file_name)
+        ).limit(5).all()
+
+        if not files:
+            return {"found": False, "file_name": file_name}
+
+        results = []
+        for f in files:
+            tags = db.query(Tag.name).join(FileTag, Tag.id == FileTag.tag_id).filter(
+                FileTag.file_id == f.id
+            ).all()
+            tags_str = ', '.join([t[0] for t in tags]) if tags else '无标签'
+            results.append({
+                "id": f.id,
+                "name": f.name,
+                "path": f.path,
+                "tags": tags_str
+            })
+
+        return {"found": True, "files": results}
+    finally:
+        db.close()
+
+
+@app.post("/ai/chat")
+async def chat_with_files(request: dict):
+    """
+    AI对话接口，支持文件上下文
+    """
+    provider = request.get("provider", "ollama")
+    model = request.get("model")
+    messages = request.get("messages", [])
+    file_context = request.get("file_context", "")
+
+    ai_provider = get_ai_provider(provider, model=model)
+
+    # 如果有文件上下文，添加到首条用户消息
+    if file_context:
+        system_prompt = """你是文件管理助手。以下是你管理的文件：
+
+""" + file_context + """
+
+请根据用户问题推荐相关文件，并说明理由。回答要简洁、准确。"""
+
+        # 在消息列表开头插入系统提示
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = system_prompt
+        else:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
+    # 记录请求
+    logger.info(f"AI对话请求: provider={provider}, model={model}, messages数量={len(messages)}")
+    if messages and messages[0].get("role") == "system":
+        sys_content = messages[0]["content"]
+        logger.info(f"System prompt长度: {len(sys_content)} 字符")
+        # 日志记录前200字符
+        logger.info(f"System prompt前200字符: {sys_content[:200]}")
+
+    # 调用AI
+    response = ai_provider.chat(
+        system_prompt=messages[0]["content"] if messages and messages[0].get("role") == "system" else "",
+        user_prompt=messages[-1]["content"] if messages else ""
+    )
+
+    logger.info(f"AI响应: {response[:200] if response else '空响应'}...")
+
+    return {"response": response}
+
+
+@app.post("/ai/prompt/generate")
+async def generate_prompt(request: dict):
+    """
+    生成适合不同AI平台的提示词（仅文本）
+    """
+    source_text = request.get("source_text", "")
+    target_provider = request.get("target_provider", "qwen")
+
+    if target_provider == "qwen":
+        prompt = f"""你是文件管理助手。以下是你管理的文件上下文：
+
+{source_text}
+
+# 用户问题
+[用户问题]
+
+# 要求
+请根据文件上下文回答用户问题，如需要请推荐相关文件并说明理由。"""
+    elif target_provider == "deepseek":
+        prompt = f"""[AI Persona]
+You are a file management assistant with knowledge of the following files:
+
+{source_text}
+
+[User Question]
+[User's question here]
+
+[Task]
+Answer the user's question based on the file context provided. Recommend relevant files when appropriate and explain why."""
+    else:  # openai
+        import json
+        prompt = json.dumps({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": f"You are a file management assistant. You have knowledge of the following files:\n\n{source_text}"},
+                {"role": "user", "content": "[User's question here]"}
+            ]
+        }, ensure_ascii=False, indent=2)
+
+    return {"prompt": prompt}
+
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):
